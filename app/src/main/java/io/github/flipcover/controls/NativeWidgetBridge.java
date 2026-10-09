@@ -316,7 +316,11 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
         Display display = Displays.selected(context, prefs); if (!owns(outer) || display == null || display.getState() != Display.STATE_ON) return;
         if (CoverService.instance != null && CoverService.instance.deferNativeCardUpdate(display)) return;
         if (restoreBeforePublish) { stop(); refresh(); return; }
-        List<WidgetGrid.Item> items = items(outer); if (items.isEmpty()) { message(outer, "布置这张卡片", "点按添加组件 · 4×4自由布局"); return; }
+        List<WidgetGrid.Item> items = items(outer);
+        if (items.isEmpty()) {
+            RemoteViews empty = placeholder(outer, context.getString(R.string.native_widget_setup) + "(" + slot(outer) + ")", "点按添加组件 · 4×4自由布局");
+            empty.setViewVisibility(R.id.native_widget_setup_hint, View.VISIBLE); publishViews(outer, empty); return;
+        }
         try {
             WidgetSafeArea.Frame frame = frame(outer); SizeF canvas = canvasSize(outer);
             if (frame.width() < 1 || frame.height() < 1) { message(outer, "安全区空间不足", "请调整快捷栏大小或位置后重试"); return; }
@@ -347,6 +351,7 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
     }
     private RemoteViews placeholder(int outer, String title, String detail) {
         RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.native_widget_message); view.setTextViewText(R.id.native_widget_title, title); view.setTextViewText(R.id.native_widget_detail, detail);
+        view.setViewVisibility(R.id.native_widget_setup_hint, View.GONE);
         Display display = Displays.selected(context, prefs);
         if (display != null) { Intent intent = new Intent(context, NativeWidgetActivity.class).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, outer).setData(android.net.Uri.parse("flipcover://widget/" + outer)); view.setOnClickPendingIntent(R.id.native_widget_message, PendingIntent.getActivity(context, outer, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE, ActivityOptions.makeBasic().setLaunchDisplayId(display.getDisplayId()).toBundle())); }
         return view;

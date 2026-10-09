@@ -99,7 +99,14 @@ final class PanelGlassSession implements AutoCloseable {
         this.context = context; displayId = display.getDisplayId(); rotation = display.getRotation();
         Point size = new Point(); display.getRealSize(size); width = size.x; height = size.y; captureArea.set(0, 0, width, height); density = context.getResources().getDisplayMetrics().density;
     }
-    static boolean allowed(Context context, Prefs prefs) { return Build.VERSION.SDK_INT >= 33 && prefs.panelBlur() && !context.getSystemService(PowerManager.class).isPowerSaveMode() && !context.getSystemService(KeyguardManager.class).isKeyguardLocked(); }
+    static boolean allowed(Context context, Prefs prefs) { return blockedReason(context, prefs) == null; }
+    static String blockedReason(Context context, Prefs prefs) {
+        if (Build.VERSION.SDK_INT < 33) return "unsupported-api";
+        if (!prefs.panelBlur()) return "effect-disabled";
+        if (context.getSystemService(PowerManager.class).isPowerSaveMode()) return "power-save-api";
+        if (context.getSystemService(KeyguardManager.class).isKeyguardLocked()) return "keyguard";
+        return null;
+    }
     boolean matches(Display display) { Point size = new Point(); display.getRealSize(size); return !closed && displayId == display.getDisplayId() && rotation == display.getRotation() && width == size.x && height == size.y; }
     boolean ready() { return !closed && shader != null; }
     boolean taskOptics() { return ready() || !closed && sourceInvalidated && hadBackdrop; }

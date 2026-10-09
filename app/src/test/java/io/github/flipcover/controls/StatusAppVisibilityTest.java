@@ -28,11 +28,12 @@ public class StatusAppVisibilityTest {
         state.observed(null, 0); assertFalse(state.hidden()); assertEquals(0, state.remaining(0));
         state.observed("com.example.qq", 10); state.reset(); assertFalse(state.hidden());
     }
-    @Test public void emptyDockRulesDoNotHideUnknownAppsOrOverrideManualAndKeyboardChoices() {
+    @Test public void emptyDockRulesDoNotOverrideModeOrResidentKeyboardAvoidance() {
         DockVisibility dock = new DockVisibility();
-        assertFalse(dock.compact(true, Set.of())); assertFalse(dock.needsForeground());
-        dock.toggle(true, Set.of()); assertTrue(dock.compact(true, Set.of())); assertTrue(dock.needsForeground());
+        assertFalse(dock.compact(true, Set.of()));
+        dock.expandable(true); assertTrue(dock.compact(true, Set.of()));
         dock.keyboard(true); assertTrue(dock.compact(false, Set.of()));
         dock.toggle(false, Set.of()); assertFalse(dock.compact(false, Set.of()));
+        dock.expandable(false); assertTrue(dock.compact(false, Set.of()));
     }
 }

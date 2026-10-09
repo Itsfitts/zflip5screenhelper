@@ -52,6 +52,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private static final ArrayDeque<String> lifecycleHistory = new ArrayDeque<>();
     final Handler main = new Handler(Looper.getMainLooper());
     final Map<String, Integer> states = new HashMap<>();
+    private long stateReadGeneration;
+    private final Runnable updateControlStates = () -> refreshStates(false);
     private volatile long locationGeneration;
     private boolean locationWorking;
     Prefs prefs;
@@ -60,12 +62,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
     DockGeometry.Placement placement;
     private WindowManager windows;
     private DockView dock;
-    private ClockDockHandleView clockHandle;
-    private DockGeometry.Box clockHandleBox;
-    private DockGeometry.ClockHandle clockHandlePositions;
-    private ValueAnimator clockHandleMotion;
-    private float clockDockProgress;
-    private boolean clockDockWindow;
+    private DockHandleView dockHandle;
+    private DockGeometry.Box dockHandleBox;
+    private DockGeometry.ClockHandle dockHandlePositions;
+    private ValueAnimator dockHandleMotion;
+    private float dockProgress;
     private boolean coverClockVisible;
     private int clockWindowId = -1;
     private boolean returningToClock;
@@ -140,7 +141,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private Consumer<Boolean> blurListener;
     private Consumer<Boolean> hubBlurListener;
     private WindowManager hubBlurWindows;
-    private String panelPage = "", signature = "";
+    private String panelPage = "", signature = "", displaySignature = "";
     private boolean taskInsetsDeferred;
     private record BrightnessRequest(Panels target, int displayId, int value, long deadline, long sequence, Runnable finished) { }
     private BrightnessRequest pendingBrightness, activeBrightness;
@@ -209,8 +210,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (key == null || key.equals("enabled") || key.equals("display")) appLaunchGeneration++;
         if (key == null || key.equals("enabled") || key.equals("display")) locationGeneration++;
         if ("system_controls_disabled".equals(key) || "launcher_page".equals(key) || "launcher_page_boot".equals(key)) return;
-        if ("status_hidden_apps".equals(key) || "dock_compact_apps".equals(key) || "dock_auto_hide".equals(key) || "avoid_keyboard".equals(key)) { main.post(this::updateApplicationRules); return; }
-        if ("status_enabled".equals(key) || key == null) main.post(this::updateApplicationRules);
+        if ("status_hidden_apps".equals(key) || "dock_compact_apps".equals(key) || "dock_auto_hide".equals(key) || "dock_expandable".equals(key) || "avoid_keyboard".equals(key)) { main.post(this::updateApplicationRules); return; }
+        if ("enabled".equals(key) || "status_enabled".equals(key) || key == null) main.post(this::updateApplicationRules);
         if ("panel".equals(key) && panel != null && panelPage.equals("controls")) { if (controlEditor == null) { dismissDetails(); populatePanel("controls"); refreshStates(true); } return; }
         if ("hub_workspace".equals(key) || "hub_workspace_compact".equals(key)) { if (hub != null) hub.workspacePreferencesChanged(); return; }
         if ("hub_pins".equals(key) || "hub_pinned".equals(key)) { if (hub != null) hub.dockPreferencesChanged(); return; }
@@ -232,7 +233,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 main.removeCallbacks(restoreFromLauncherCard); pendingLauncherDisplay = -1;
                 main.removeCallbacks(updateDisplay); main.removeCallbacks(settledDisplay);
                 removeWindows(); signature = ""; setStatus("息屏期间已隐藏");
-            } else if (android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(intent.getAction())) refreshBlurState();
+            } else if (android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(intent.getAction())) { refreshBlurState(); if (panels != null) panels.updateStates(); }
             else scheduleDisplay();
         }
     };
@@ -282,7 +283,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             Display target = Displays.selected(this, prefs);
             if (dockAppRulesEnabled && compactApplications.contains("com.android.systemui") && target != null && Build.VERSION.SDK_INT >= 33 && event.getDisplayId() == target.getDisplayId()
                 && "com.android.systemui".contentEquals(event.getPackageName() == null ? "" : event.getPackageName())) {
-                coverPagingEvents++; returningToClock = true; dockVisibility.clearManual(); syncDockVisibility(); scheduleDisplay();
+                coverPagingEvents++; returningToClock = true; syncDockVisibility(); scheduleDisplay();
             }
             return;
         }
@@ -290,13 +291,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
             && "com.android.systemui".contentEquals(event.getPackageName() == null ? "" : event.getPackageName()) && dockAppRulesEnabled && compactApplications.contains("com.android.systemui")) {
             Display target = Displays.selected(this, prefs);
             if (target != null && Build.VERSION.SDK_INT >= 33 && event.getDisplayId() == target.getDisplayId()) {
-                returningToClock = true; dockVisibility.clearManual(); syncDockVisibility();
+                returningToClock = true; syncDockVisibility();
             }
         }
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             // Content events supply only a missing window identity. Known identities cost
             // no window enumeration, display reconciliation, node reads or text processing.
-            if ((!statusVisibility.enabled() && !dockAppRulesEnabled) || event.getPackageName() == null || event.getPackageName().toString().equals(windowPackages.get(event.getWindowId()))) return;
+            if ((!statusVisibility.enabled() && !dockAppRulesEnabled && !prefs.enabled()) || event.getPackageName() == null || event.getPackageName().toString().equals(windowPackages.get(event.getWindowId()))) return;
             Display target = Displays.selected(this, prefs);
             if (target == null || Build.VERSION.SDK_INT >= 33 && event.getDisplayId() != target.getDisplayId()) return;
             observeForeground(event); return;
@@ -307,25 +308,30 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void updateApplicationRules() {
         if (prefs == null) return;
+        dockVisibility.expandable(prefs.dockExpandable());
+        if (panelEntry != null) panelEntry.modeChanged();
+        if (dock != null) dock.modeChanged();
         statusVisibility.applications(prefs.statusEnabled() ? prefs.statusHiddenApps() : java.util.Set.of());
         java.util.Set<String> nextCompact = prefs.compactApps();
-        boolean changed = !compactApplications.equals(nextCompact) || dockAppRulesEnabled != (prefs.autoHideDock() && !nextCompact.isEmpty());
-        if (changed && coverClockVisible) dockVisibility.clearManual();
+        boolean nextAppRules = prefs.autoHideDock() && !nextCompact.isEmpty();
         if (!compactApplications.equals(nextCompact)) { compactApplications = java.util.Set.copyOf(nextCompact); dockVisibility.rulesChanged(); }
-        dockAppRulesEnabled = prefs.autoHideDock() && !compactApplications.isEmpty();
+        dockAppRulesEnabled = nextAppRules;
+        if (!dockAppRulesEnabled) returningToClock = false;
         avoidKeyboard = prefs.avoidKeyboard();
-        if (!statusVisibility.enabled() && !dockAppRulesEnabled && !dockVisibility.needsForeground()) windowPackages.clear();
+        // Both modes need clock-page identity, including when application rules are off.
+        boolean foregroundNeeded = statusVisibility.enabled() || dockAppRulesEnabled || prefs.enabled();
+        if (!foregroundNeeded) windowPackages.clear();
         main.removeCallbacks(settleStatusApplication);
         android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
             int types = info.eventTypes;
             long timeout = dockAppRulesEnabled ? 0 : 200;
-            if (statusVisibility.enabled() || dockAppRulesEnabled) info.eventTypes |= AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED;
+            if (foregroundNeeded) info.eventTypes |= AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED;
             else info.eventTypes &= ~AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED;
             if (dockAppRulesEnabled) info.eventTypes |= AccessibilityEvent.TYPE_VIEW_SCROLLED; else info.eventTypes &= ~AccessibilityEvent.TYPE_VIEW_SCROLLED;
             if (types != info.eventTypes || info.notificationTimeout != timeout) { info.notificationTimeout = timeout; setServiceInfo(info); }
         }
-        if (statusVisibility.enabled() || dockAppRulesEnabled) observeForeground(null);
+        if (foregroundNeeded) observeForeground(null);
         syncCardStatus(); syncDockVisibility();
     }
     private void resetStatusApplication() { main.removeCallbacks(settleStatusApplication); statusVisibility.reset(); }
@@ -382,7 +388,6 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void observeForeground(AccessibilityEvent event) {
         if (prefs == null) return;
-        boolean previousClock = coverClockVisible;
         launcherHostFocused = false; nativeHostVisible = false; coverClockVisible = false;
         Display target = Displays.selected(this, prefs);
         if (target == null || target.getDisplayId() == Display.DEFAULT_DISPLAY) { nativeHostArea(null, null); resetStatusApplication(); syncCardStatus(); launcherVisibilityChanged(); return; }
@@ -392,7 +397,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             try {
                 java.util.List<android.view.accessibility.AccessibilityWindowInfo> items = all.get(target.getDisplayId());
                 if (items == null) { statusApplication(null); if (taskGlass != null && taskGlass.displayId == target.getDisplayId()) taskGlass.sourceMissing(); launcherVisibilityChanged(); return; }
-                boolean packageNeeded = statusVisibility.enabled() || dockAppRulesEnabled || dockVisibility.needsForeground();
+                boolean packageNeeded = statusVisibility.enabled() || dockAppRulesEnabled || prefs.enabled();
                 if (packageNeeded && event != null && event.getPackageName() != null && event.getWindowId() >= 0
                     && (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
                     && Build.VERSION.SDK_INT >= 33 && event.getDisplayId() == target.getDisplayId()) {
@@ -434,7 +439,6 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 String backgroundPackage = windowPackages.get(backgroundWindow);
                 coverClockVisible = DockVisibility.clockPage(backgroundPackage, backgroundTitle, systemUiTitle, backgroundActive);
                 if (coverClockVisible) { clockWindowId = backgroundWindow; if (event != null && event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) returningToClock = false; }
-                if (coverClockVisible && !previousClock) dockVisibility.clearManual();
                 if (coverClockVisible && backgroundPackage == null) { backgroundPackage = "com.android.systemui"; windowPackages.put(backgroundWindow, backgroundPackage); }
                 nativeHostArea(target, hostBounds);
                 if (hub != null && hub.showingTasks() && taskGlass != null && taskGlass.displayId == target.getDisplayId() && (externalSceneChanged || taskGlass.observedSourceChanged(backgroundWindow, backgroundBounds, backgroundTitle))) {
@@ -445,7 +449,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 // Keep a small cache so a temporarily covered app can regain focus without
                 // a new state event. IDs and package names are never persisted or exported.
                 if (packageNeeded) while (windowPackages.size() > 32) windowPackages.remove(windowPackages.keySet().iterator().next());
-                if (packageNeeded) dockVisibility.foreground(coverClockVisible ? backgroundPackage : active != null ? active : focused);
+                if (packageNeeded) dockVisibility.foreground(coverClockVisible || backgroundActive ? backgroundPackage : active != null ? active : focused != null ? focused : backgroundPackage);
                 // The highest application window belongs to this display. System/IME/own
                 // overlays cannot borrow another display's package. Briefly unresolved
                 // window replacements wait for metadata, then default to visible.
@@ -480,6 +484,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             boolean locked = getSystemService(KeyguardManager.class).isKeyguardLocked();
             if (!prefs.enabled() || selected == null || locked || selected.getState() != Display.STATE_ON) {
                 appLaunchGeneration++;
+                dockVisibility.reset();
                 resetStatusApplication();
                 removeWindows(); signature = "";
                 setStatus(!prefs.enabled() ? "快捷栏已暂停" : selected == null ? "未检测到外屏，请手动选择" : locked ? "系统报告锁屏，快捷栏已隐藏" : "外屏未亮起，快捷栏已隐藏（状态 " + selected.getState() + "）");
@@ -497,12 +502,16 @@ public final class CoverService extends AccessibilityService implements DisplayM
             android.graphics.Insets navigation = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets navigationBounds = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets systemInsets = contentInsets(displayInsets, selected.getCutout());
-            String nextSignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + selected.getCutout() + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets;
+            String nextDisplaySignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + selected.getCutout();
+            String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets;
             if (!force && nextSignature.equals(signature) && dock != null && dock.isAttachedToWindow() && panelEntry != null && panelEntry.isAttachedToWindow()) { syncDockVisibility(); resumeNativeCardUpdates(); return; }
             // App removal/restoration changes navigation insets without changing the display.
             // Keep the live carousel, close queue and pointer owner until this task session ends.
             if (!force && retainTaskSession(selected, size, rotation, density)) { taskInsetsDeferred = true; return; }
             taskInsetsDeferred = false;
+            if (!force && nextDisplaySignature.equals(displaySignature) && updateWindowInsets(selected, size, rotation, mandatory, navigation, navigationBounds, systemInsets)) {
+                signature = nextSignature; resumeNativeCardUpdates(); return;
+            }
             String reopen = homeClosing ? "" : panelPage; boolean reopenHub = !homeClosing && hub != null && !hub.closing() && hub != openingTaskHub, expandedHub = reopenHub && hub.expanded(), reopenTasks = reopenHub && hub.showingTasks();
             android.os.Bundle editorState = !homeClosing && controlEditor != null && display != null && display.getDisplayId() == selected.getDisplayId() ? controlEditor.snapshot() : null;
             RecentTasks.Task selectedTask = reopenHub ? hub.selectedTask() : null;
@@ -512,37 +521,76 @@ public final class CoverService extends AccessibilityService implements DisplayM
             display = selected;
             screenContext = context.createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null);
             windows = screenContext.getSystemService(WindowManager.class);
-            ArrayList<DockGeometry.Box> cutouts = new ArrayList<>();
-            if (selected.getCutout() != null) for (android.graphics.Rect r : selected.getCutout().getBoundingRects()) cutouts.add(new DockGeometry.Box(r.left, r.top, r.width(), r.height()));
-            placement = DockGeometry.resolve(size.x, size.y, cutouts, density, prefs.corner(rotation), prefs.widthRatio(), prefs.heightRatio(), prefs.data.getBoolean("auto_placement", true));
-            DockGeometry.Placement entryAnchor = placement;
-            int panelHomeInset = Math.max(mandatory.bottom, navigation.bottom);
-            navigationInsetPixels = 0;
-            if (prefs.avoidNavigation()) {
-                android.graphics.Insets safe = android.graphics.Insets.max(mandatory, navigationBounds);
-                navigationInsetPixels = switch (placement.edge()) { case DockGeometry.TOP -> safe.top; case DockGeometry.LEFT -> safe.left; case DockGeometry.RIGHT -> safe.right; default -> safe.bottom; };
-                placement = DockGeometry.avoidEdge(placement, size.x, size.y, Math.max(navigationInsetPixels, Ui.dp(screenContext, 16)), Ui.dp(screenContext, prefs.navigationGap()));
-            }
-            if (!prefs.avoidNavigation()) placement = DockGeometry.edgeTouch(placement, size.x, size.y);
-            DockGeometry.Box widgetArea = resolveContentGeometry(size, rotation, cutouts, entryAnchor, systemInsets, panelHomeInset);
-            android.graphics.Insets handleInsets = android.graphics.Insets.max(systemInsets, android.graphics.Insets.max(mandatory, navigationBounds));
-            int handleTop = Math.max(handleInsets.top, statusBox == null ? 0 : statusBox.bottom());
-            clockHandleBox = DockGeometry.clockHandle(placement, size.x, size.y, cutouts, density, new DockGeometry.Box(handleInsets.left, handleTop, Math.max(0, size.x - handleInsets.left - handleInsets.right), Math.max(0, size.y - handleTop - handleInsets.bottom)), panelEntryPlacement.touch());
-            android.graphics.Insets dockInsets = android.graphics.Insets.max(mandatory, navigationBounds);
-            // The dock already avoids the real camera rectangle; full-width cutout insets
-            // would incorrectly erase its usable camera-side strip.
-            clockHandlePositions = DockGeometry.clockHandlePositions(placement, clockHandleBox, new DockGeometry.Box(dockInsets.left, dockInsets.top, Math.max(0, size.x - dockInsets.left - dockInsets.right), Math.max(0, size.y - dockInsets.top - dockInsets.bottom)));
+            DockGeometry.Box widgetArea = resolveWindowGeometry(selected, size, rotation, mandatory, navigation, navigationBounds, systemInsets);
             ensurePanelHost(); ensureHubHosts(); addDock(firstDockPresentation);
             if (prefs.statusEnabled()) { statusBar = new StatusBarView(screenContext, prefs); syncCardStatus(); windows.addView(statusBar, statusParameters()); }
             panelEntry = new PanelEntryView(screenContext, prefs, panelEntryPlacement, chromeListener());
             windows.addView(panelEntry, panelEntryParameters());
             CoverApp.widgets(this).safeArea(selected, size.x, size.y, widgetArea);
-            signature = nextSignature;
+            signature = nextSignature; displaySignature = nextDisplaySignature;
             observeForeground(null);
             resumeNativeCardUpdates();
             setStatus("快捷栏运行中 · 屏幕 " + selected.getDisplayId() + (placement.measured() ? " · 按缺口定位" : " · 位置需校准"));
             if (!reopen.isEmpty()) { showPanel(reopen); if (editorState != null) editControls(editorState); } else if (reopenHub) { showHub(expandedHub, reopenTasks); if (hub != null) { hub.restoreWorkspaceState(workspaceState); if (reopenTasks) { hub.showTasks(true); hub.selectTask(selectedTask); } } }
         } catch (RuntimeException e) { removeWindows(); signature = ""; setStatus("外屏挂载失败：" + e.getClass().getSimpleName()); }
+    }
+    private DockGeometry.Box resolveWindowGeometry(Display selected, Point size, int rotation, android.graphics.Insets mandatory, android.graphics.Insets navigation, android.graphics.Insets navigationBounds, android.graphics.Insets systemInsets) {
+        float density = screenContext.getResources().getDisplayMetrics().density;
+        ArrayList<DockGeometry.Box> cutouts = new ArrayList<>();
+        if (selected.getCutout() != null) for (android.graphics.Rect r : selected.getCutout().getBoundingRects()) cutouts.add(new DockGeometry.Box(r.left, r.top, r.width(), r.height()));
+        placement = DockGeometry.resolve(size.x, size.y, cutouts, density, prefs.corner(rotation), prefs.widthRatio(), prefs.heightRatio(), prefs.data.getBoolean("auto_placement", true));
+        DockGeometry.Placement entryAnchor = placement;
+        int panelHomeInset = Math.max(mandatory.bottom, navigation.bottom);
+        navigationInsetPixels = 0;
+        if (prefs.avoidNavigation()) {
+            android.graphics.Insets safe = android.graphics.Insets.max(mandatory, navigationBounds);
+            navigationInsetPixels = switch (placement.edge()) { case DockGeometry.TOP -> safe.top; case DockGeometry.LEFT -> safe.left; case DockGeometry.RIGHT -> safe.right; default -> safe.bottom; };
+            placement = DockGeometry.avoidEdge(placement, size.x, size.y, Math.max(navigationInsetPixels, Ui.dp(screenContext, 16)), Ui.dp(screenContext, prefs.navigationGap()));
+        }
+        if (!prefs.avoidNavigation()) placement = DockGeometry.edgeTouch(placement, size.x, size.y);
+        DockGeometry.Box widgetArea = resolveContentGeometry(size, rotation, cutouts, entryAnchor, systemInsets, panelHomeInset);
+        android.graphics.Insets handleInsets = android.graphics.Insets.max(systemInsets, mandatory);
+        int handleTop = Math.max(handleInsets.top, statusBox == null ? 0 : statusBox.bottom());
+        DockGeometry.Box handleBox = DockGeometry.clockHandle(placement, size.x, size.y, cutouts, density, new DockGeometry.Box(handleInsets.left, handleTop, Math.max(0, size.x - handleInsets.left - handleInsets.right), Math.max(0, size.y - handleTop - handleInsets.bottom)), panelEntryPlacement.touch());
+        dockHandlePositions = DockGeometry.clockHandlePositions(placement, handleBox);
+        return widgetArea;
+    }
+    /** Insets can change between apps without invalidating the mounted chrome or its subscriptions. */
+    private boolean updateWindowInsets(Display selected, Point size, int rotation, android.graphics.Insets mandatory, android.graphics.Insets navigation, android.graphics.Insets navigationBounds, android.graphics.Insets systemInsets) {
+        if (windows == null || screenContext == null || dock == null || !dock.isAttachedToWindow() || panelEntry == null || !panelEntry.isAttachedToWindow()
+            || prefs.statusEnabled() && (statusBar == null || !statusBar.isAttachedToWindow())
+            || panel != null || hub != null || panelPush != null || hubPush != null || panelDragging || panelPulling || homeClosing || panelAnimation != null || sceneBootstrap != null) return false;
+        DockGeometry.Placement oldDock = dockPlacement;
+        DockGeometry.ClockHandle oldHandle = dockHandlePositions;
+        DockGeometry.Box widgetArea = resolveWindowGeometry(selected, size, rotation, mandatory, navigation, navigationBounds, systemInsets);
+        if (!sameDockShape(oldDock, placement)) return false;
+        // DockView owns immutable local slots; insets only translate this equivalent shape.
+        dockPlacement = placement;
+        if (!oldDock.touch().equals(placement.touch()) || !java.util.Objects.equals(oldHandle, dockHandlePositions)) {
+            if (!oldDock.touch().equals(placement.touch())) dock.geometryChanged();
+            cancelDockMotion(); dock.setTranslationX(0); dock.setTranslationY(0);
+            boolean compact = dockCompact(); dock.compact(compact); dockProgress = compact ? 0 : 1;
+            windows.updateViewLayout(dock, dockParameters());
+            if (dockHandle != null) {
+                dockHandleBox = compact ? dockHandlePositions.collapsed() : dockHandlePositions.expanded();
+                updateWindowBounds(dockHandle, dockHandleBox);
+            }
+        }
+        panelEntry.placement(panelEntryPlacement); updateWindowBounds(panelEntry, panelEntryPlacement.touch());
+        if (statusBar != null) updateWindowBounds(statusBar, statusBox);
+        CoverApp.widgets(this).safeArea(selected, size.x, size.y, widgetArea);
+        syncCardStatus(); syncDockVisibility(); return true;
+    }
+    private static boolean sameDockShape(DockGeometry.Placement a, DockGeometry.Placement b) {
+        return a != null && a.edge() == b.edge() && a.touch().width() == b.touch().width() && a.touch().height() == b.touch().height()
+            && a.visual().width() == b.visual().width() && a.visual().height() == b.visual().height()
+            && a.visual().x() - a.touch().x() == b.visual().x() - b.touch().x() && a.visual().y() - a.touch().y() == b.visual().y() - b.touch().y();
+    }
+    private void updateWindowBounds(View view, DockGeometry.Box box) {
+        WindowManager.LayoutParams layout = (WindowManager.LayoutParams) view.getLayoutParams();
+        if (layout.x == box.x() && layout.y == box.y() && layout.width == box.width() && layout.height == box.height()) return;
+        if (view instanceof DockHandleView handle) handle.geometryChanged();
+        layout.x = box.x(); layout.y = box.y(); layout.width = box.width(); layout.height = box.height(); windows.updateViewLayout(view, layout);
     }
     /** Visibility-aware system bars; physical cutout safety also works when window metrics are unavailable. */
     static android.graphics.Insets contentInsets(android.view.WindowInsets insets, android.view.DisplayCutout cutout) {
@@ -599,19 +647,21 @@ public final class CoverService extends AccessibilityService implements DisplayM
         taskInsetsDeferred = false; scheduleDisplay();
     }
     private void addDock(boolean firstPresentation) {
-        main.removeCallbacks(settleLauncherEntry); launcherEntryPending = false;
         boolean compact = dockCompact();
-        clockDockWindow = coverClockVisible || returningToClock;
-        dockPlacement = compact && !clockDockWindow ? DockGeometry.handlesOnly(placement, screenContext.getResources().getDisplayMetrics().density) : placement;
+        dockPlacement = placement;
         dock = new DockView(screenContext, prefs, dockPlacement, savedPage, chromeListener(), compact);
         dock.passive(); configureInput(dock, dock::release);
+        prepareDockPresentation(firstPresentation, compact);
+        if (compact) dock.setVisibility(View.GONE);
+        windows.addView(dock, dockParameters());
+    }
+    private void prepareDockPresentation(boolean firstPresentation, boolean compact) {
+        main.removeCallbacks(settleLauncherEntry); launcherEntryPending = false;
         // The host window can appear before its per-card visible callback. Keep
         // these two entries out of the first frame, without delaying other keys.
         launcherEntryPending = firstPresentation && !compact && launcherHostFocused && CoverApp.launcherWidgets(this).cards().length > 0;
         launcherVisibilityChanged();
         if (launcherEntryPending) main.postDelayed(settleLauncherEntry, 600);
-        if (compact) dock.setVisibility(View.GONE);
-        windows.addView(dock, dockParameters());
     }
     private DockView.Listener chromeListener() {
         return new DockView.Listener() {
@@ -620,12 +670,12 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 @Override public void beginPull(String page, float distance, float originY) { beginPanelPull(page, distance, originY); }
                 @Override public void pull(String page, float distance) { pullPanel(page, distance); }
                 @Override public void release(String page, float distance, float velocity, boolean canceled) { releasePanel(distance, velocity, canceled); }
-                @Override public void toggleVisibility() { dockVisibility.toggle(dockAppRulesEnabled, compactApplications); syncDockVisibility(); }
+                @Override public void toggleMode() { prefs.dockExpandable(!prefs.dockExpandable()); updateApplicationRules(); }
             };
     }
     private WindowManager.LayoutParams dockParameters() {
         WindowManager.LayoutParams layout = parameters(dockPlacement.touch());
-        if (dock.compact() || clockHandleMotion != null) layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        if (dock.compact() || dockHandleMotion != null) layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         return layout;
     }
     private WindowManager.LayoutParams panelEntryParameters() {
@@ -635,7 +685,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void syncHubEntry() {
         launcherVisibilityChanged();
-        syncClockHandle();
+        syncDockHandle();
         if (panelEntry == null || windows == null) return;
         try { windows.updateViewLayout(panelEntry, panelEntryParameters()); } catch (RuntimeException ignored) { }
     }
@@ -649,94 +699,103 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void syncDockVisibility() {
         if (dock == null || windows == null || panelDragging) return;
-        if (getSystemService(KeyguardManager.class).isKeyguardLocked()) { removeClockHandle(); return; }
+        if (getSystemService(KeyguardManager.class).isKeyguardLocked()) { removeDockHandle(); return; }
         try {
-            if (clockDockWindow && coverClockVisible && !returningToClock && clockHandle != null && dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications) && panel == null && hub == null) { syncClockHandle(); return; }
+            // Resident clock rules must hide reused buttons before the first clock frame.
+            if (!dockVisibility.expandable() && dockHandle == null && dockCompact() && !dock.compact()) { dock.compact(true); windows.updateViewLayout(dock, dockParameters()); }
+            if (dockHandleEligible()) { syncDockHandle(); if (dockHandle != null) return; }
+            removeDockHandle();
             if (dock.compact() != dockCompact()) {
-                if (clockDockWindow) { dock.compact(dockCompact()); windows.updateViewLayout(dock, dockParameters()); }
-                else { boolean firstPresentation = dock.compact(); savedPage = dock.page(); windows.removeViewImmediate(dock); dock = null; addDock(firstPresentation); }
+                prepareDockPresentation(dock.compact(), dockCompact());
+                dock.compact(dockCompact()); windows.updateViewLayout(dock, dockParameters());
             }
-            syncClockHandle();
         }
         catch (RuntimeException e) { removeWindows(); signature = ""; scheduleDisplay(); }
     }
-    private void syncClockHandle() {
-        boolean visible = coverClockVisible && !returningToClock && dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications) && !Boolean.TRUE.equals(keyboardVisible) && panel == null && hub == null && !homeClosing;
-        if (!visible || dock == null || windows == null || panelEntry == null || !panelEntry.isAttachedToWindow() || clockHandlePositions == null || clockHandlePositions.collapsed().width() == 0 || clockHandlePositions.collapsed().height() == 0 || !currentTaskDisplay(display == null ? -1 : display.getDisplayId())) { removeClockHandle(); return; }
+    private boolean dockHandleEligible() {
+        dockVisibility.clock(coverClockVisible);
+        return (coverClockVisible || dockVisibility.expandable()) && (coverClockVisible || !returningToClock) && !dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications) && panel == null && hub == null && !homeClosing;
+    }
+    private void syncDockHandle() {
+        boolean visible = dockHandleEligible();
+        if (!visible || dock == null || windows == null || panelEntry == null || !panelEntry.isAttachedToWindow() || dockHandlePositions == null || dockHandlePositions.collapsed().width() == 0 || dockHandlePositions.collapsed().height() == 0 || !currentTaskDisplay(display == null ? -1 : display.getDisplayId())) { removeDockHandle(); return; }
         try {
             boolean expanded = !dockCompact();
-            if (clockHandle == null) {
-                clockHandle = new ClockDockHandleView(screenContext, prefs, placement.edge(), this::toggleClockDock);
-                clockDockProgress = 0;
-                Point size = Displays.size(display);
-                clockHandleBox = DockGeometry.outsideDisplay(clockHandlePositions.collapsed(), placement.edge(), size.x, size.y);
-                WindowManager.LayoutParams layout = parameters(clockHandleBox); layout.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS; layout.setTitle("时钟页快捷栏箭头"); windows.addView(clockHandle, layout);
-                clockHandle.expanded(expanded); moveClockHandle(expanded); return;
+            if (dockHandle == null) {
+                dockHandle = new DockHandleView(screenContext, prefs, placement.edge(), this::toggleDock);
+                dockHandle.autoHide(coverClockVisible);
+                // Remounts restore the current state; only an explicit arrow toggle travels between positions.
+                dockProgress = expanded ? 1 : 0;
+                dockHandleBox = expanded ? dockHandlePositions.expanded() : dockHandlePositions.collapsed();
+                WindowManager.LayoutParams layout = parameters(dockHandleBox); layout.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS; layout.setTitle("快捷栏收起展开箭头"); windows.addView(dockHandle, layout);
+                dockHandle.expanded(expanded); moveDockHandle(expanded); return;
             }
-            if (clockHandle.expanded() != expanded) { clockHandle.expanded(expanded); moveClockHandle(expanded); }
-        } catch (RuntimeException error) { removeClockHandle(); setStatus("时钟页箭头挂载失败：" + error.getClass().getSimpleName()); }
+            dockHandle.autoHide(coverClockVisible);
+            if (dockHandle.expanded() != expanded) { dockHandle.expanded(expanded); moveDockHandle(expanded); }
+        } catch (RuntimeException error) { removeDockHandle(); setStatus("快捷栏箭头挂载失败：" + error.getClass().getSimpleName()); }
     }
-    private void toggleClockDock() {
-        ClockDockHandleView source = clockHandle;
+    private void toggleDock() {
+        DockHandleView source = dockHandle;
         if (source == null || !source.isAttachedToWindow() || !currentTaskDisplay(display == null ? -1 : display.getDisplayId())) return;
         observeForeground(null);
-        if (clockHandle != source || !coverClockVisible || !dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications)) return;
+        if (dockHandle != source || !dockHandleEligible()) return;
         dockVisibility.toggle(dockAppRulesEnabled, compactApplications); syncDockVisibility();
     }
-    private void removeClockHandle() {
-        removeClockHandle(true);
+    private void removeDockHandle() {
+        removeDockHandle(true);
     }
-    private void removeClockHandle(boolean settleDock) {
-        boolean moving = clockHandleMotion != null;
-        cancelClockMotion();
+    private void removeDockHandle(boolean settleDock) {
+        boolean moving = dockHandleMotion != null;
+        cancelDockMotion();
         if (dock != null) {
             dock.setTranslationX(0); dock.setTranslationY(0);
             if (settleDock && moving && windows != null && dock.isAttachedToWindow()) {
-                dock.compact(dockCompact()); clockDockProgress = dock.compact() ? 0 : 1;
+                dock.compact(dockCompact()); dockProgress = dock.compact() ? 0 : 1;
                 try { windows.updateViewLayout(dock, dockParameters()); } catch (RuntimeException ignored) { }
             }
         }
-        if (clockHandle == null) return;
-        ClockDockHandleView removed = clockHandle; clockHandle = null;
+        if (dockHandle == null) return;
+        DockHandleView removed = dockHandle; dockHandle = null;
         try { windows.removeViewImmediate(removed); } catch (RuntimeException ignored) { }
     }
-    private void cancelClockMotion() {
-        if (clockHandleMotion == null) return;
-        ValueAnimator removed = clockHandleMotion; clockHandleMotion = null;
+    private void cancelDockMotion() {
+        if (dockHandleMotion == null) return;
+        ValueAnimator removed = dockHandleMotion; dockHandleMotion = null;
         removed.removeAllListeners(); removed.removeAllUpdateListeners(); removed.cancel();
     }
-    private void moveClockHandle(boolean expanded) {
-        cancelClockMotion();
-        ClockDockHandleView owner = clockHandle;
+    private void moveDockHandle(boolean expanded) {
+        cancelDockMotion();
+        DockHandleView owner = dockHandle;
         DockView movingDock = dock;
-        DockGeometry.Box from = clockHandleBox, to = expanded ? clockHandlePositions.expanded() : clockHandlePositions.collapsed();
-        float fromProgress = clockDockProgress, targetProgress = expanded ? 1 : 0;
+        DockGeometry.Box from = dockHandleBox, to = expanded ? dockHandlePositions.expanded() : dockHandlePositions.collapsed();
+        float fromProgress = dockProgress, targetProgress = expanded ? 1 : 0;
         int edge = placement.edge(), distance = placement.vertical() ? dockPlacement.touch().width() : dockPlacement.touch().height();
+        if (expanded && movingDock.compact()) prepareDockPresentation(true, false);
         movingDock.compact(false);
         java.util.function.Consumer<Float> place = progress -> {
-            if (clockHandle != owner || dock != movingDock || !owner.isAttachedToWindow()) return;
-            clockHandleBox = DockGeometry.interpolate(from, to, progress);
-            clockDockProgress = fromProgress + (targetProgress - fromProgress) * progress;
-            float offset = (1 - clockDockProgress) * distance;
+            if (dockHandle != owner || dock != movingDock || !owner.isAttachedToWindow()) return;
+            dockHandleBox = DockGeometry.interpolate(from, to, progress);
+            dockProgress = fromProgress + (targetProgress - fromProgress) * progress;
+            float offset = (1 - dockProgress) * distance;
             movingDock.setTranslationX(edge == DockGeometry.LEFT ? -offset : edge == DockGeometry.RIGHT ? offset : 0);
             movingDock.setTranslationY(edge == DockGeometry.TOP ? -offset : edge == DockGeometry.BOTTOM ? offset : 0);
-            WindowManager.LayoutParams layout = (WindowManager.LayoutParams) owner.getLayoutParams(); layout.x = clockHandleBox.x(); layout.y = clockHandleBox.y();
-            try { windows.updateViewLayout(owner, layout); } catch (RuntimeException error) { removeClockHandle(); }
+            WindowManager.LayoutParams layout = (WindowManager.LayoutParams) owner.getLayoutParams(); layout.x = dockHandleBox.x(); layout.y = dockHandleBox.y();
+            try { windows.updateViewLayout(owner, layout); } catch (RuntimeException error) { removeDockHandle(); }
         };
         Runnable finish = () -> {
-            if (clockHandle != owner || dock != movingDock) return;
+            if (dockHandle != owner || dock != movingDock) return;
             movingDock.compact(!expanded);
-            try { windows.updateViewLayout(movingDock, dockParameters()); } catch (RuntimeException error) { removeClockHandle(); }
+            try { windows.updateViewLayout(movingDock, dockParameters()); } catch (RuntimeException error) { removeDockHandle(); }
         };
-        if (!ValueAnimator.areAnimatorsEnabled() || from.equals(to)) { place.accept(1f); finish.run(); return; }
-        clockHandleMotion = ValueAnimator.ofFloat(0, 1); clockHandleMotion.setDuration(BuildConfig.MOTION_HANDLES_FADE_IN_MS);
-        clockHandleMotion.setInterpolator(new android.view.animation.LinearInterpolator());
-        ValueAnimator motion = clockHandleMotion;
+        if (!ValueAnimator.areAnimatorsEnabled() || from.equals(to) && fromProgress == targetProgress) { place.accept(1f); finish.run(); return; }
+        dockHandleMotion = ValueAnimator.ofFloat(0, 1); dockHandleMotion.setDuration(BuildConfig.MOTION_HANDLES_FADE_IN_MS);
+        dockHandleMotion.setInterpolator(new android.view.animation.LinearInterpolator());
+        ValueAnimator motion = dockHandleMotion;
         motion.addUpdateListener(animation -> place.accept((float) animation.getAnimatedValue()));
-        motion.addListener(new android.animation.AnimatorListenerAdapter() { @Override public void onAnimationEnd(android.animation.Animator animation) { if (clockHandleMotion == motion) { clockHandleMotion = null; finish.run(); } } });
+        motion.addListener(new android.animation.AnimatorListenerAdapter() { @Override public void onAnimationEnd(android.animation.Animator animation) { if (dockHandleMotion == motion) { dockHandleMotion = null; finish.run(); } } });
         place.accept(0f); windows.updateViewLayout(movingDock, dockParameters()); motion.start();
     }
-    private boolean dockCompact() { if (returningToClock) return true; dockVisibility.keyboard(avoidKeyboard && Boolean.TRUE.equals(keyboardVisible)); return dockVisibility.compact(dockAppRulesEnabled, compactApplications); }
+    private boolean dockCompact() { dockVisibility.clock(coverClockVisible); if (returningToClock && !coverClockVisible) return true; dockVisibility.keyboard(avoidKeyboard && Boolean.TRUE.equals(keyboardVisible)); return dockVisibility.compact(dockAppRulesEnabled, compactApplications); }
     private NativeCardInput nativeInput;
     final InputNavigation.Memory inputMemory = new InputNavigation.Memory();
     boolean inputShortcut(String id, int target) {
@@ -816,7 +875,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     void showPanel(String page) { showPanel(page, false); }
     private void showPanel(String page, boolean dragging) {
         if (windows == null || dock == null || homeClosing) return;
-        removeClockHandle();
+        removeDockHandle();
         boolean retainedFallback = panel != null && panelCard == null && panelMemoryFallback && glassPage(page);
         // A failed or pending capture belongs to this opening too; switching pages must not retry it.
         PanelGlassSession retained = panelCard == null && panelGlass != null && panelGlass.matches(display) && glassPage(page) ? panelGlass : null;
@@ -840,7 +899,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             windows.updateViewLayout(panelHost, layout); setPanelProgress(panelProgress);
             if (retained == null && !panelMemoryFallback) openingCard.prepareGlass(this, display, prefs, () -> panelCard == openingCard && display != null && openingCard.glass() != null && openingCard.glass().matches(display) && glassTargetSelected(openingCard.glass()) && display.getState() == Display.STATE_ON && !getSystemService(KeyguardManager.class).isKeyguardLocked(), () -> {
                 if (panelCard != openingCard) return; panelGlass = openingCard.glass();
-                setPanelProgress(panelProgress); if (panelGlass != null) lastGlassDiagnostics = panelGlass.diagnostics(); enter.run();
+                setPanelProgress(panelProgress); lastGlassDiagnostics = openingCard.glassDiagnostics(); enter.run();
             }, hubPush != null || panelPush != null);
             panelGlass = openingCard.glass();
             if (panelEntry != null) panelEntry.panelVisible(true);
@@ -969,8 +1028,10 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     void closePanel() { closePanel(false); }
     private void closePanel(boolean preserveOutgoing) {
+        stateReadGeneration++; main.removeCallbacks(updateControlStates);
         if (!preserveOutgoing) { finishHubPush(false); finishPanelPush(false); }
         panelMemoryFallback = false;
+        if (panelCard != null) lastGlassDiagnostics = panelCard.glassDiagnostics();
         if (panelGlass != null) { lastGlassDiagnostics = panelGlass.diagnostics(); if (panelCard == null) panelGlass.close(); panelGlass = null; }
         if (controlEditor != null) { screenContext.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(controlEditor.getWindowToken(), 0); controlEditor.cancelDrag(); controlEditor = null; }
         if (panelTintAnimation != null) panelTintAnimation.cancel(); panelTintAnimation = null; panelBackdrop = null;
@@ -1010,9 +1071,10 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private boolean visualEffectsAllowed() { return !panelMemoryFallback && Build.VERSION.SDK_INT >= 31 && prefs.panelBlur() && !screenContext.getSystemService(android.os.PowerManager.class).isPowerSaveMode(); }
     private void refreshBlurState() {
         if (screenContext == null || windows == null) return;
-        if (!PanelGlassSession.allowed(screenContext, prefs)) {
-            if (hubCard != null) { hubCard.dropGlass(); taskGlass = null; if (taskSurface != null) taskSurface.previewsVisible(); } else closeTaskGlass();
-            if (panelCard != null) { panelCard.dropGlass(); panelGlass = null; }
+        String blocked = PanelGlassSession.blockedReason(screenContext, prefs);
+        if (blocked != null) {
+            if (hubCard != null) { hubCard.dropGlass("blocked:" + blocked); taskGlass = null; if (taskSurface != null) taskSurface.previewsVisible(); } else closeTaskGlass();
+            if (panelCard != null) { panelCard.dropGlass("blocked:" + blocked); panelGlass = null; }
             else if (panelGlass != null) { lastGlassDiagnostics = panelGlass.diagnostics(); panelGlass.close(); panelGlass = null; if (panelHost != null) panelHost.setVisibility(View.VISIBLE); }
         }
         boolean supported = Build.VERSION.SDK_INT >= 31 && windows.isCrossWindowBlurEnabled();
@@ -1027,7 +1089,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     String blurDiagnostics() {
         String accelerated = panelHost == null || !panelHost.isAttachedToWindow() ? "未挂载" : String.valueOf(panelHost.isHardwareAccelerated());
-        return "外屏面板宿主硬件加速：" + accelerated + "\n详情本地模糊当前启用：" + detailBlurApplied + "\n" + (panelGlass == null ? lastGlassDiagnostics + "当前会话已释放 · 纹理 0B\n" : panelGlass.diagnostics()) + "多任务：\n" + (taskGlass == null ? lastTaskGlassDiagnostics + "当前会话已释放 · 纹理 0B\n" : taskGlass.diagnostics());
+        return "外屏面板宿主硬件加速：" + accelerated + "\n详情本地模糊当前启用：" + detailBlurApplied + "\n" + (panelCard != null ? panelCard.glassDiagnostics() : panelGlass == null ? lastGlassDiagnostics + "当前会话已释放 · 纹理 0B\n" : panelGlass.diagnostics()) + "多任务：\n" + (taskGlass == null ? lastTaskGlassDiagnostics + "当前会话已释放 · 纹理 0B\n" : taskGlass.diagnostics());
     }
     void showDetails(String id, View source) {
         if (panel == null || !(panel.getParent() instanceof FrameLayout host)) return;
@@ -1056,11 +1118,21 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (windows != null && panelHost != null) try { WindowManager.LayoutParams params = (WindowManager.LayoutParams) panelHost.getLayoutParams(); if (!CoverApp.inputs(this).keyboardAvailable() && !panelHost.hasPointerCapture()) params.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE; windows.updateViewLayout(panelHost, params); } catch (RuntimeException ignored) { }
     }
     boolean rotationAutomatic() { return automaticRotation != null && automaticRotation.enabled(); }
+    Boolean rotationTileState() { return rotationAutomatic() ? Boolean.TRUE : states.getOrDefault("rotation_mode", -1) < 0 ? null : Boolean.FALSE; }
+    String rotationLabel() { return CoverRotation.label(rotationAutomatic(), states.getOrDefault("rotation_mode", -1)); }
+    void rotationStateChanged() { if (panels != null) panels.updateStates(); if (detailContent != null) detailContent.stateChanged("rotation"); }
+    void rotationConfirmed(ShizukuBridge.Result result) { states.put("rotation_mode", CoverRotation.systemMode(result.ok, result.output)); rotationStateChanged(); }
     void stopAutomaticRotation() { if (automaticRotation != null) automaticRotation.stop(); if (panels != null) panels.updateStates(); }
     void lockRotation(int angle) {
         int target = display == null ? -1 : display.getDisplayId(); stopAutomaticRotation();
-        Runnable lock = () -> { Display selected = Displays.selected(this, prefs); if (selected == null || selected.getDisplayId() != target || selected.getState() != Display.STATE_ON || getSystemService(KeyguardManager.class).isKeyguardLocked()) return; shell("rotation", angle, "", null); };
+        states.put("rotation_mode", -1); rotationStateChanged();
+        Runnable lock = () -> { if (!currentTaskDisplay(target)) return; shell("rotation", angle, "", result -> { if (currentTaskDisplay(target)) rotationConfirmed(result); }); };
         if (automaticRotation != null) automaticRotation.afterCurrent(lock); else lock.run();
+    }
+    void releaseRotation() {
+        int target = display == null ? -1 : display.getDisplayId(); stopAutomaticRotation(); states.put("rotation_mode", -1); rotationStateChanged();
+        Runnable release = () -> { if (currentTaskDisplay(target)) shell("rotation_auto", 0, "", result -> { if (currentTaskDisplay(target)) rotationConfirmed(result); }); };
+        if (automaticRotation != null) automaticRotation.afterCurrent(release); else release.run();
     }
     void toggleRotation() {
         if (rotationAutomatic()) lockRotation(display.getRotation());
@@ -1231,7 +1303,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private void showHub(boolean expandedInitially) { showHub(expandedInitially, false); }
     private void showHub(boolean expandedInitially, boolean tasksInitially) {
         if (windows == null || dock == null || homeClosing) return;
-        removeClockHandle();
+        removeDockHandle();
         int sceneEdge = tasksInitially ? DockGeometry.BOTTOM : expandedInitially ? panelEdge() : DockGeometry.BOTTOM;
         if (panel != null) beginPanelPush(sceneEdge); else closePanel();
         beginHubPush(sceneEdge);
@@ -1603,7 +1675,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void removeWindows(boolean keepNativeGeometry) {
         locationGeneration++;
-        removeClockHandle(false); clockHandleBox = null; clockHandlePositions = null; clockDockWindow = false;
+        removeDockHandle(false); dockHandleBox = null; dockHandlePositions = null;
         if (!keepNativeGeometry) { coverClockVisible = false; clockWindowId = -1; returningToClock = false; }
         if (!keepNativeGeometry) { nativeHostArea(null, null); nativeGeometryDeferred = false; }
         main.removeCallbacks(updateNativeInput); if (nativeInput != null) nativeInput.close(); nativeHostVisible = false;
@@ -1652,7 +1724,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
         });
     }
     void refreshStates(boolean readBrightness) { refreshStates(readBrightness, () -> { }); }
+    void controlStatesChanged() { main.removeCallbacks(updateControlStates); main.postDelayed(updateControlStates, 160); }
     private void refreshStates(boolean readBrightness, Runnable finished) {
+        refreshStates(readBrightness, finished, android.os.SystemClock.uptimeMillis() + 4000);
+    }
+    private void refreshStates(boolean readBrightness, Runnable finished, long deadline) {
+        Panels source = panels; ControlDetails sourceDetails = detailContent; int screen = display == null ? -1 : display.getDisplayId();
+        if (source == null || controlEditor != null || !currentTaskDisplay(screen)) { finished.run(); return; }
         if (readBrightness && panelPage.equals("controls") && panels != null && panels.hasBrightness() && display != null && !CoverApp.bridge(this).busy() && pendingBrightness == null && activeBrightness == null) {
             Panels target = panels; int selected = display.getDisplayId();
             if (requestBrightness(target, -1, () -> {
@@ -1660,11 +1738,18 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 else finished.run();
             })) return;
         }
-        CoverApp.bridge(this).run("states", -1, 0, "", result -> {
-            if (instance != this) return;
+        long generation = ++stateReadGeneration;
+        java.util.function.BooleanSupplier active = () -> generation == stateReadGeneration && panels == source && detailContent == sourceDetails && controlEditor == null && currentTaskDisplay(screen);
+        CoverApp.bridge(this).run("states", screen, 0, "", active, result -> {
+            if (!active.getAsBoolean()) { finished.run(); return; }
+            if (result.retryable) {
+                if (android.os.SystemClock.uptimeMillis() < deadline) main.postDelayed(() -> { if (active.getAsBoolean()) refreshStates(false, finished, deadline); else finished.run(); }, 160);
+                else { for (String id : SystemSwitches.IDS) states.put(id, -1); source.updateStates(); if (detailContent != null) detailContent.statesChanged(); finished.run(); }
+                return;
+            }
             if (result.ok) try {
                 JSONObject values = new JSONObject(result.output);
-                for (String key : new String[]{"wifi", "bluetooth", "data", "dnd", "airplane", "system_controls", "nfc", "hotspot"}) states.put(key, values.optInt(key, -1));
+                for (String key : new String[]{"wifi", "bluetooth", "data", "dnd", "airplane", "system_controls", "nfc", "hotspot", "rotation_mode"}) states.put(key, values.optInt(key, -1));
             } catch (Exception ignored) { states.clear(); }
             if (!result.ok) states.clear();
             if (detailContent!=null) { if (result.ok) detailContent.statesChanged(); else detailContent.statesInvalidated(); }
@@ -1720,6 +1805,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         });
     }
     Boolean on(String id) {
+        if (ActionCatalog.isPowerSaveTile(id)) return getSystemService(android.os.PowerManager.class).isPowerSaveMode();
         if (id.equals("location")) return SystemLocation.enabled(this);
         if (id.equals("torch")) return torchOn;
         int value = states.getOrDefault(id, -1);
@@ -1750,11 +1836,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 if (!CoverApp.bridge(this).connected()) { if (panel == null || !panelPage.equals("controls")) showPanel("controls"); showDetails(id, null); }
                 else connectivityAction(id, -1, "", null);
             }
-            case "wifi", "bluetooth", "data", "dnd", "airplane" -> {
-                Boolean value = on(id);
-                if (value == null) { showPanel("controls"); panels.chooseState(id); }
-                else setSwitch(id, !value);
-            }
+            case "wifi", "bluetooth", "data", "dnd", "airplane" -> switchAction(id, -1, () -> { });
             default -> {
                 if (id.startsWith("tile:")) shell("tile_click", 0, ActionCatalog.component(id).flattenToString(), null);
                 else if (id.startsWith("app:")) launchApp(id);
@@ -1815,10 +1897,21 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     void setSwitch(String id, boolean enabled,Runnable finished) {
         if (id.equals("location")) { locationAction(enabled ? 1 : 0, finished); return; }
-        Panels target = panels;
-        shell(id, enabled ? 1 : 0, "", result -> {
-            if (target != null && panels == target) target.working(id, result.ok);
-            main.postDelayed(() -> refreshStates(false, () -> { if (target != null && panels == target) target.working(id, false); finished.run(); }), 700);
+        switchAction(id, enabled ? 1 : 0, finished);
+    }
+    private void switchAction(String id, int value, Runnable finished) {
+        Panels target = panels; ControlDetails sourceDetails = detailContent; int screen = display == null ? -1 : display.getDisplayId();
+        if (!SystemSwitches.IDS.contains(id) || !currentTaskDisplay(screen)) { message("所选外屏不可用，请解锁后重试"); finished.run(); return; }
+        if (target != null && target.working(id)) { finished.run(); return; }
+        if (target != null) target.working(id, true); message("正在切换…");
+        java.util.function.BooleanSupplier active = () -> panels == target && detailContent == sourceDetails && currentTaskDisplay(screen);
+        CoverApp.bridge(this).run(id, screen, value, "", active, result -> {
+            if (target != null && panels == target) target.working(id, false);
+            if (!active.getAsBoolean()) return;
+            if (!result.retryable) { int actual = result.output.equals("1") ? 1 : result.output.equals("0") ? 0 : -1; states.put(id, actual); }
+            if (panels != null) panels.updateStates(); finished.run();
+            if (detailContent != null) detailContent.stateChanged(id);
+            message(result.message);
         });
     }
     void setSystemControls(int value) {
@@ -2028,7 +2121,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         super.dump(descriptor, writer, arguments); writer.println(blurDiagnostics());
         if (prefs != null) { writer.println(windowDiagnostics()); writer.println(lifecycleDiagnostics()); }
         writer.println("Status overlay: mounted=" + (statusBar != null) + ", visible=" + (statusBar != null && statusBar.getVisibility() == View.VISIBLE) + ", appRule=" + statusVisibility.hidden() + ", enabled=" + statusVisibility.enabled() + ", settling=" + main.hasCallbacks(settleStatusApplication));
-        writer.println("Clock dock: scene=" + coverClockVisible + ", automaticHidden=" + dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications) + ", mounted=" + (clockHandle != null && clockHandle.isAttachedToWindow()) + ", expanded=" + (clockHandle != null && clockHandle.expanded()) + ", alpha=" + (clockHandle == null ? 0 : clockHandle.getAlpha()) + ", touch=" + clockHandleBox + ", motion=" + (clockHandleMotion != null) + ", dockProgress=" + clockDockProgress + ", paging=" + returningToClock + ", pagingEvents=" + coverPagingEvents);
+        writer.println("Dock arrow geometry: expandableMode=" + dockVisibility.expandable() + ", positions=" + dockHandlePositions);
+        writer.println("Clock dock: scene=" + coverClockVisible + ", automaticHidden=" + dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications) + ", mounted=" + (dockHandle != null && dockHandle.isAttachedToWindow()) + ", expanded=" + (dockHandle != null && dockHandle.expanded()) + ", alpha=" + (dockHandle == null ? 0 : dockHandle.getAlpha()) + ", touch=" + dockHandleBox + ", motion=" + (dockHandleMotion != null) + ", dockProgress=" + dockProgress + ", paging=" + returningToClock + ", pagingEvents=" + coverPagingEvents);
         writer.println("Launcher entry: hostFocused=" + launcherHostFocused + ", cardVisible=" + (display != null && CoverApp.launcherWidgets(this).visible(display.getDisplayId())) + ", pending=" + launcherEntryPending + ", hub=" + (hub != null) + ", " + (dock == null ? "dock=absent" : dock.launcherEntryDiagnostics()));
         writer.println("Launcher geometry: rotation=" + (display == null ? -1 : display.getRotation()) + ", frame=" + hubFrame);
         writer.println("Native host geometry: " + nativeHostArea);

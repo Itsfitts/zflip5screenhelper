@@ -28,8 +28,8 @@ android {
         applicationId 'io.github.flipcover.controls'
         minSdk 30
         targetSdk 36
-        versionCode 84
-        versionName '0.18.26'
+        versionCode 85
+        versionName '0.18.27'
         testInstrumentationRunner 'io.github.flipcover.controls.UiSmokeInstrumentation'
     }
     buildFeatures { aidl true; buildConfig true; compose true }

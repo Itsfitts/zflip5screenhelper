@@ -32,6 +32,7 @@ final class ConfigurationChecks {
             test.waitForIdleSync();
             roundtrip();
             homeBehavior();
+            dockModes();
             entryPositions();
             templates();
             malformed();
@@ -45,7 +46,7 @@ final class ConfigurationChecks {
 
     private void roundtrip() throws Exception {
         prefs.data.edit().putBoolean("input_enabled", true).putBoolean("gestures_enabled", false).putBoolean("avoid_keyboard", false).putBoolean("haptics", false)
-            .putBoolean("dock_auto_hide", false).putStringSet("dock_compact_apps", Set.of("com.example.first", "com.example.second"))
+            .putBoolean("dock_auto_hide", false).putBoolean("dock_expandable", true).putStringSet("dock_compact_apps", Set.of("com.example.first", "com.example.second"))
             .putStringSet("status_hidden_apps", Set.of("com.example.second"))
             .putString("app_rotations", "{\"com.example.first\":3,\"com.example.second\":4}")
             .putString("dock", "[\"home\",\"back\",\"app_dock\"]").putString("panel", "[\"wifi\",\"media\",\"system_controls\"]")
@@ -116,6 +117,20 @@ final class ConfigurationChecks {
         JSONObject missing = new JSONObject(saved.toString()); missing.getJSONObject("layout").remove("homeAction"); reject(missing, "new layout requires Home behavior");
         JSONObject legacy = new JSONObject(saved.toString()); legacy.getJSONObject("layout").put("version", 9).remove("homeAction");
         activity.applyConfigurationData(legacy); require(prefs.homeAction().equals("cards"), "older layout defaults Home to native cards");
+    }
+
+    private void dockModes() throws Exception {
+        prefs.dockExpandable(true); JSONObject saved = activity.exportConfigurationData();
+        prefs.dockExpandable(false); activity.applyConfigurationData(saved);
+        require(prefs.dockExpandable() && new Prefs(activity).dockExpandable(), "arrow mode roundtrips and survives a new preference owner");
+        prefs.saveLayout(); prefs.dockExpandable(false); prefs.restoreLayout(false);
+        require(prefs.dockExpandable(), "layout backup restores arrow mode");
+        prefs.restoreLayout(true); require(!prefs.dockExpandable(), "layout undo restores resident mode");
+        for (Object invalid : new Object[]{"true", 1, JSONObject.NULL}) {
+            JSONObject bad = new JSONObject(saved.toString()); bad.getJSONObject("layout").put("dockExpandable", invalid); reject(bad, "invalid dock mode is atomic");
+        }
+        saved.getJSONObject("layout").remove("dockExpandable"); activity.applyConfigurationData(saved);
+        require(!prefs.dockExpandable(), "legacy backups use resident mode without changing existing rules");
     }
 
     private void entryPositions() throws Exception {

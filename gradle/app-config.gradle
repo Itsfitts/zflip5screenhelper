@@ -14,6 +14,7 @@ def parameters = [
     'defaults.dock.widthRatio': ['float', 0.25, 0.70],
     'defaults.dock.heightRatio': ['float', 0.05, 0.22],
     'defaults.dock.autoHide': ['boolean'],
+    'defaults.dock.expandable': ['boolean'],
     'defaults.dock.avoidKeyboard': ['boolean'],
     'defaults.dock.haptics': ['boolean'],
     'defaults.dock.gestures': ['boolean'],

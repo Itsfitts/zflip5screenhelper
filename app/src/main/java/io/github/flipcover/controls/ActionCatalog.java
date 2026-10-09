@@ -49,6 +49,14 @@ public final class ActionCatalog {
         int separator = id.indexOf(':');
         return separator < 0 ? null : ComponentName.unflattenFromString(id.substring(separator + 1));
     }
+    static boolean isPowerSaveTile(String id) {
+        if (id == null || !id.startsWith("tile:")) return false;
+        ComponentName component = component(id);
+        return component != null && component.getPackageName().equals("com.samsung.android.lool") && component.getClassName().equals("com.samsung.android.sm.battery.ui.mode.BatteryModeTile");
+    }
+    static boolean showsState(String id) {
+        return id != null && (SystemSwitches.IDS.contains(id) || List.of("location", "torch", "system_controls", "nfc", "hotspot", "rotation").contains(id) || id.startsWith("tile:"));
+    }
     public static String label(Context context, String id) {
         for (Action action : BUILT_INS) if (action.id.equals(id)) return action.label;
         String cached = CoverApp.catalog(context).label(id); if (cached != null) return cached;

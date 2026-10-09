@@ -24,6 +24,9 @@ final class ControlDetails implements AutoCloseable {
     private String pendingRoute;
     private ConnectivityDetails connectivity;
     private SystemLocation location;
+    private boolean watchingSwitches;
+    private final Runnable switchChanged = this::switchesChanged;
+    private void switchesChanged() { if (!closed) owner.controlStatesChanged(); }
     private final java.util.ArrayList<SwitchRow> switches=new java.util.ArrayList<>();
     void torchChanged() { if (!closed) for (SwitchRow control:switches) if (control.id.equals("torch") && (!control.pending || java.util.Objects.equals(control.current(),control.requested))) control.complete(); }
     void statesChanged() { if (!closed) for (SwitchRow control:switches) if (!control.pending && !control.id.equals("torch")) control.complete(); }
@@ -38,6 +41,7 @@ final class ControlDetails implements AutoCloseable {
     };
     ControlDetails(CoverService owner, DetailSheet sheet) { this.owner = owner; context = owner.screenContext; this.sheet = sheet; sheet.panelStyle(); }
     void build(String id) {
+        if (SystemSwitches.IDS.contains(id)) { watchingSwitches = true; CoverApp.bridge(context).addSwitchObserver(switchChanged); switchChanged.run(); }
         switch (id) {
             case "external_devices" -> {
                 sheet.compactWidth(296, 1); sheet.stableWidth(); sheet.glassControls();
@@ -63,7 +67,7 @@ final class ControlDetails implements AutoCloseable {
             }
             case "bluetooth" -> { switches(id); row("连接 / 配对设备", "由系统管理蓝牙设备", R.drawable.ic_ms_bluetooth, () -> settings(Settings.ACTION_BLUETOOTH_SETTINGS)); sheet.footer("更多蓝牙设置", () -> settings(Settings.ACTION_BLUETOOTH_SETTINGS)); }
             case "brightness" -> { sheet.title.setText("亮度与显示"); row("显示设置", "自动亮度 / 护眼由系统提供", R.drawable.ic_ms_brightness_6, () -> settings(Settings.ACTION_DISPLAY_SETTINGS)); }
-            case "data" -> { switches(id); sheet.footer("SIM 与移动网络", () -> settings(Settings.ACTION_WIRELESS_SETTINGS)); }
+            case "data" -> { switches(id); note("控制当前数据 SIM 的移动数据开关，不代表已经联网；切换 SIM 后重新读取。"); sheet.footer("SIM 与移动网络", () -> settings(Settings.ACTION_WIRELESS_SETTINGS)); }
             case "location" -> {
                 switches(id); note("影响整台手机的定位总开关，需要 Shizuku；不会更改各应用的定位权限。");
                 sheet.footer("系统定位设置", () -> settings(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
@@ -77,6 +81,7 @@ final class ControlDetails implements AutoCloseable {
             case "media" -> { sheet.compactWidth(228, 1); sheet.stableViewport(272); MediaDetailView media = new MediaDetailView(owner); sheet.content.addView(media); sheet.mediaHeader(media.toolbar()); sheet.onContentHeight(media::availableHeight); }
             case "apps", "app_hub" -> { row("常用应用", "添加 / 排序", R.drawable.ic_ms_apps, () -> owner.openSettings("favorites")); row("应用方向", "单独设置启动角度", R.drawable.ic_ms_screen_rotation, () -> owner.openSettings("orientations")); }
             default -> {
+                if (id.startsWith("tile:") && !ActionCatalog.isPowerSaveTile(id)) note("此磁贴暂未提供可读取的状态，灰色不代表关闭；执行结果请以原应用为准。");
                 if (id.startsWith("tile:")) { row("磁贴偏好", "应用提供的设置入口", R.drawable.ic_ms_settings, () -> owner.launch(new Intent(android.service.quicksettings.TileService.ACTION_QS_TILE_PREFERENCES).setPackage(ActionCatalog.component(id).getPackageName()).putExtra(Intent.EXTRA_COMPONENT_NAME, ActionCatalog.component(id)))); sheet.footer("应用信息", () -> owner.launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ActionCatalog.component(id).getPackageName())))); }
                 else row("控制中心设置", "按钮与显示配置", R.drawable.ic_ms_tune, () -> owner.openSettings("panel"));
             }
@@ -150,7 +155,7 @@ final class ControlDetails implements AutoCloseable {
         ControlRotationTabs angles=new ControlRotationTabs(context,owner.display.getRotation(),angle -> { owner.lockRotation(angle); sheet.close(); });
         LinearLayout.LayoutParams size=new LinearLayout.LayoutParams(-2,Ui.dp(context,PanelUi.SLOT)); size.gravity=android.view.Gravity.CENTER_HORIZONTAL; size.setMargins(Ui.dp(context,PanelUi.INSET),Ui.dp(context,3),Ui.dp(context,PanelUi.INSET),Ui.dp(context,3)); sheet.content.addView(angles,size);
         note("更改屏幕方向可能会让液态玻璃临时失效,届时请手动重启带有液态玻璃的页面");
-        sheet.footer("交回系统旋转", () -> { owner.stopAutomaticRotation(); owner.shell("rotation_auto", 0, "", null); sheet.close(); });
+        sheet.footer("交回系统旋转", () -> { owner.releaseRotation(); sheet.close(); });
     }
-    @Override public void close() { closed = true; for (SwitchRow control:switches) owner.main.removeCallbacks(control.timeout); switches.clear(); if (location != null) { location.close(); location = null; } if (connectivity != null) { connectivity.close(); connectivity = null; } owner.main.removeCallbacks(routeTimeout); if (router != null) { router.unregisterRouteCallback(routes); router.unregisterControllerCallback(controller); router.unregisterTransferCallback(transfers); router = null; } }
+    @Override public void close() { closed = true; if (watchingSwitches) { CoverApp.bridge(context).removeSwitchObserver(switchChanged); watchingSwitches = false; } for (SwitchRow control:switches) owner.main.removeCallbacks(control.timeout); switches.clear(); if (location != null) { location.close(); location = null; } if (connectivity != null) { connectivity.close(); connectivity = null; } owner.main.removeCallbacks(routeTimeout); if (router != null) { router.unregisterRouteCallback(routes); router.unregisterControllerCallback(controller); router.unregisterTransferCallback(transfers); router = null; } }
 }

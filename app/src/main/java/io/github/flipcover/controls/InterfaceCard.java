@@ -39,6 +39,7 @@ final class InterfaceCard extends FrameLayout {
     private final Runnable pauseContent, releaseContent;
     private Material material;
     private PanelGlassSession glass;
+    private String glassState = "not-prepared";
     private boolean interactive = true, closed, prepared, plateVisible = true, memoryFallback;
     private float exitStart, exitExtent;
     private float restingX, restingY;
@@ -146,12 +147,13 @@ final class InterfaceCard extends FrameLayout {
     }
     Material material() { return material; }
     PanelGlassSession glass() { return glass; }
+    String glassDiagnostics() { return glass == null ? "玻璃背景：" + glassState + "\n当前纹理 0B\n" : glass.diagnostics(); }
     boolean ready() { return !closed && (glass == null || !glass.preparing()); }
     boolean plateVisible() { return plateVisible; }
     void plateVisible(boolean visible) { if (plateVisible == visible) return; plateVisible = visible; rebind(); }
     void material(Material value) { if (material == value) return; material = value; rebind(); }
     private void fallback() {
-        int color = !plateVisible ? Color.TRANSPARENT : material == Material.FROSTED ? 0x88161C24 : 0x3D000000;
+        int color = !plateVisible ? Color.TRANSPARENT : Ui.BACKGROUND;
         setBackground(new android.graphics.drawable.Drawable() {
             private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             private final RectF bounds = new RectF();
@@ -169,11 +171,14 @@ final class InterfaceCard extends FrameLayout {
         if (glass != null) glass.attach(this, false);
         else setVisibility(VISIBLE);
     }
-    void dropGlass() { memoryFallback = true; glass(null); setVisibility(VISIBLE); }
+    void dropGlass() { dropGlass("released"); }
+    void dropGlass(String reason) { memoryFallback = true; glassState = reason; glass(null); setVisibility(VISIBLE); }
     void prepareGlass(AccessibilityService service, Display display, Prefs prefs, BooleanSupplier current, Runnable ready, boolean windowOnly) {
         if (closed || prepared) return;
         prepared = true;
-        if (display == null || display.getDisplayId() == Display.DEFAULT_DISPLAY || !PanelGlassSession.allowed(getContext(), prefs)) { ready.run(); return; }
+        String blocked = display == null ? "no-display" : display.getDisplayId() == Display.DEFAULT_DISPLAY ? "primary-display-rejected" : PanelGlassSession.blockedReason(getContext(), prefs);
+        if (blocked != null) { glassState = "blocked:" + blocked; ready.run(); return; }
+        glassState = "preparing";
         glass = new PanelGlassSession(getContext(), display);
         if (viewport != null && localSafeArea != null) {
             Rect required = new Rect(viewport.x() + localSafeArea.x(), viewport.y() + localSafeArea.y(), viewport.x() + localSafeArea.right(), viewport.y() + localSafeArea.bottom());

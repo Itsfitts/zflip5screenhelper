@@ -77,6 +77,9 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("detail-motion")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runMotionChecks()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("detail-content")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runContentChecks()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-glass-capture")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runCaptureChecks()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("power-save-tile")) { result.putString("result", new PowerSaveTileChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("diagnostic-refresh")) { result.putString("result", new DiagnosticsChecks(this, expectedRotation).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("control-states")) { result.putString("result", new ControlStateChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("connectivity")) { result.putString("result", new ConnectivityChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("settings-update-actions")) { if (expectedRotation >= 0) require(getUiAutomation().setRotation(expectedRotation), "settings update rotation accepted"); result.putString("result", new SettingsUpdateActionsChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("app-update")) { result.putString("result", new AppUpdateChecks().run(this)); finish(Activity.RESULT_OK, result); return; }
@@ -834,7 +837,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
                 @Override public void action(String id) { actions[0]++; }
                 @Override public void configure() { }
                 @Override public void pull(String page, float distance) { pulls[0]++; }
-                @Override public void toggleVisibility() { toggles[0]++; }
+                @Override public void toggleMode() { toggles[0]++; }
                 @Override public void release(String page, float distance, float velocity, boolean cancel) { releases[0]++; canceled[0] = cancel; }
             });
             FrameLayout root = new FrameLayout(activity); root.setBackgroundColor(Ui.BACKGROUND); TextView label = Ui.text(activity, "摄像头内侧双白条 · 原生组件预览", 14, Ui.MUTED); FrameLayout.LayoutParams text = new FrameLayout.LayoutParams(-2, -2); text.topMargin = Ui.dp(activity, 70); text.leftMargin = Ui.dp(activity, 16); root.addView(label, text);

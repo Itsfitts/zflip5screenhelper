@@ -76,7 +76,7 @@ final class ChromeShadowChecks {
                     StatusBarView floatingStatus = status(context, prefs, false); screen.addView(floatingStatus, new FrameLayout.LayoutParams(-1, floatingStatus.heightPixels()));
                     float density = context.getResources().getDisplayMetrics().density;
                     DockGeometry.Placement placement = DockGeometry.resolve(748, 720, List.of(new DockGeometry.Box(379, 654, 369, 66)), density, 3, .46f, .088f, true);
-                    DockView dock = new DockView(context, prefs, placement, 0, new DockView.Listener() { public void action(String id) { } public void configure() { } public void toggleVisibility() { } });
+                    DockView dock = new DockView(context, prefs, placement, 0, new DockView.Listener() { public void action(String id) { } public void configure() { } public void toggleMode() { } });
                     FrameLayout.LayoutParams dockParams = new FrameLayout.LayoutParams(placement.touch().width(), placement.touch().height()); dockParams.leftMargin = placement.touch().x(); dockParams.topMargin = placement.touch().y(); screen.addView(dock, dockParams);
                     Bitmap bitmap = render(screen, 748, 720);
                     try (FileOutputStream output = new FileOutputStream(new File(directory, style + "-" + Integer.toHexString(background) + ".png"))) { bitmap.compress(Bitmap.CompressFormat.PNG, 100, output); } finally { bitmap.recycle(); }

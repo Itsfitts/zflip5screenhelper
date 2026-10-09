@@ -5,6 +5,20 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class ClockDockGeometryTest {
+    @Test public void appNavigationCannotRemoveTheArrowBesideTheCoverCamera() {
+        DockGeometry.Box camera = new DockGeometry.Box(379, 654, 369, 66);
+        DockGeometry.Placement dock = DockGeometry.edgeTouch(DockGeometry.resolve(748, 720, List.of(camera), 2.125f, 3, .46f, .088f, true), 748, 720);
+        for (int navigation : new int[]{66, 0, 32, 64}) {
+            DockGeometry.Box safe = new DockGeometry.Box(0, 0, 748, 720 - navigation);
+            DockGeometry.Box open = DockGeometry.clockHandle(dock, 748, 720, List.of(camera), 2.125f, safe, new DockGeometry.Box(385, 620, 357, 34));
+            DockGeometry.ClockHandle positions = DockGeometry.clockHandlePositions(dock, open);
+            assertEquals("navigation=" + navigation, Math.min(open.width(), dock.visual().width()), positions.collapsed().width());
+            assertEquals("navigation=" + navigation, Math.min(open.height(), dock.visual().height()), positions.collapsed().height());
+            assertEquals(positions.collapsed(), positions.collapsed().intersect(dock.visual()));
+            assertEquals(dock.visual().y() + dock.visual().height() / 2, positions.collapsed().y() + positions.collapsed().height() / 2);
+            assertFalse(overlaps(positions.collapsed(), camera));
+        }
+    }
     @Test public void arrowAvoidsCameraDockAndSystemInsetsInEveryRotation() {
         DockGeometry.Box[] cuts = {new DockGeometry.Box(379, 654, 369, 66), new DockGeometry.Box(654, 0, 66, 369), new DockGeometry.Box(0, 0, 369, 66), new DockGeometry.Box(0, 379, 66, 369)};
         for (float density : new float[]{1.5f, 2.125f, 2.75f}) for (int rotation = 0; rotation < 4; rotation++) {
@@ -25,6 +39,27 @@ public class ClockDockGeometryTest {
         DockGeometry.Box handle = DockGeometry.clockHandle(dock, 100, 60, List.of(), 2, strip, new DockGeometry.Box(0, 0, 0, 0));
         assertEquals(0, handle.height());
     }
+    @Test public void appInsetsDoNotMoveTheCollapsedArrowAwayFromTheDock() {
+        for (int corner = 0; corner < 4; corner++) {
+            DockGeometry.Placement dock = DockGeometry.edgeTouch(DockGeometry.resolve(720, 748, List.of(), 2.125f, corner, .46f, .088f, false), 720, 748);
+            DockGeometry.Box visual = dock.visual();
+            DockGeometry.Box safe = switch (dock.edge()) {
+                case DockGeometry.TOP -> new DockGeometry.Box(0, visual.bottom(), 720, 748 - visual.bottom());
+                case DockGeometry.LEFT -> new DockGeometry.Box(visual.right(), 0, 720 - visual.right(), 748);
+                case DockGeometry.RIGHT -> new DockGeometry.Box(0, 0, visual.x(), 748);
+                default -> new DockGeometry.Box(0, 0, 720, visual.y());
+            };
+            DockGeometry.Box open = DockGeometry.clockHandle(dock, 720, 748, List.of(), 2.125f, safe, new DockGeometry.Box(0, 0, 0, 0));
+            DockGeometry.ClockHandle positions = DockGeometry.clockHandlePositions(dock, open);
+            assertTrue(positions.collapsed().width() > 0 && positions.collapsed().height() > 0);
+            assertNotEquals(positions.expanded(), positions.collapsed());
+            assertEquals(positions.collapsed(), positions.collapsed().intersect(dock.visual()));
+            assertEquals(positions.expanded(), positions.expanded().intersect(safe));
+            DockGeometry.Placement avoided = DockGeometry.avoidEdge(dock, 720, 748, 80, 8);
+            DockGeometry.ClockHandle moved = DockGeometry.clockHandlePositions(avoided, open);
+            assertEquals(moved.collapsed(), moved.collapsed().intersect(avoided.visual()));
+        }
+    }
     @Test public void sameCornerArrowCannotStealWhiteBarGestures() {
         for (int corner = 0; corner < 4; corner++) for (String entry : List.of("top_left", "top_right", "bottom_right")) {
             DockGeometry.Placement dock = DockGeometry.edgeTouch(DockGeometry.resolve(720, 748, List.of(), 2.125f, corner, .46f, .088f, false), 720, 748);
@@ -41,7 +76,7 @@ public class ClockDockGeometryTest {
             DockGeometry.Placement dock = DockGeometry.edgeTouch(DockGeometry.resolve(width, height, List.of(cuts[rotation]), 2.125f, (rotation + 3) % 4, .46f, .088f, true), width, height);
             DockGeometry.Box safe = new DockGeometry.Box(0, 0, width, height);
             DockGeometry.Box open = DockGeometry.clockHandle(dock, width, height, List.of(cuts[rotation]), 2.125f, safe, new DockGeometry.Box(0, 0, 0, 0));
-            DockGeometry.ClockHandle points = DockGeometry.clockHandlePositions(dock, open, safe);
+            DockGeometry.ClockHandle points = DockGeometry.clockHandlePositions(dock, open);
             DockGeometry.Box outside = DockGeometry.outsideDisplay(points.collapsed(), dock.edge(), width, height);
             assertFalse(overlaps(outside, safe));
             assertEquals(points.collapsed(), DockGeometry.interpolate(outside, points.collapsed(), 1));

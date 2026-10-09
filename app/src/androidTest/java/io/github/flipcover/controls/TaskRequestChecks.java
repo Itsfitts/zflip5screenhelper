@@ -28,6 +28,7 @@ final class TaskRequestChecks {
         AtomicReference<ShizukuBridge.Snapshot> preview = new AtomicReference<>();
         AtomicBoolean active = new AtomicBoolean(true), onMain = new AtomicBoolean();
         IShellService fake = new IShellService.Stub() {
+            @Override public void watchSwitches(IConnectivityListener listener) { }
             public String execute(String operation, int display, int value, String component) {
                 operations.add(operation);
                 if (operation.equals("states")) { started.countDown(); try { if (!release.await(3, TimeUnit.SECONDS)) throw new AssertionError("fixture release timeout"); } catch (InterruptedException error) { throw new AssertionError(error); } }

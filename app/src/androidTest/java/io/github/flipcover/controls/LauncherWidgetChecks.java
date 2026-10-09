@@ -192,6 +192,7 @@ final class LauncherWidgetChecks {
         java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(true);
         java.util.concurrent.atomic.AtomicReference<ShizukuBridge.Result> received = new java.util.concurrent.atomic.AtomicReference<>();
         IShellService service = new IShellService.Stub() {
+            @Override public void watchSwitches(IConnectivityListener listener) { }
             @Override public void watchConnectivity(IConnectivityListener listener) { }
             public String execute(String operation, int display, int value, String item) { entered.countDown(); try { release.await(5, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException error) { Thread.currentThread().interrupt(); } return "{\"ok\":true,\"output\":\"{\\\"state\\\":\\\"opened\\\"}\"}"; }
             public Bundle taskSnapshot(int display, String item) { return null; }
@@ -368,6 +369,7 @@ final class LauncherWidgetChecks {
         String packageName = ActionCatalog.component(app).getPackageName(); int rotation = prefs.appRotation(packageName);
         java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1), release = new java.util.concurrent.CountDownLatch(1);
         IShellService controlled = new IShellService.Stub() {
+            @Override public void watchSwitches(IConnectivityListener listener) { }
             @Override public void watchConnectivity(IConnectivityListener listener) { }
             public String execute(String operation, int display, int value, String item) { entered.countDown(); try { release.await(5, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException error) { Thread.currentThread().interrupt(); } return "{\"ok\":true}"; }
             public Bundle taskSnapshot(int display, String item) { return null; }

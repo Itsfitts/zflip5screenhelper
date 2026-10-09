@@ -16,7 +16,7 @@ import rikka.shizuku.Shizuku;
 
 public final class ShizukuBridge {
     // Refresh the user service when the operation whitelist changes within a validation version.
-    private static final int SERVICE_REVISION = 2;
+    private static final int SERVICE_REVISION = 3;
     record Snapshot(android.graphics.Bitmap bitmap, String message, boolean retryable) {
         Snapshot(android.graphics.Bitmap bitmap, String message) { this(bitmap, message, false); }
     }
@@ -37,6 +37,13 @@ public final class ShizukuBridge {
     private final CopyOnWriteArrayList<Runnable> connectivityObservers = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Runnable> hotspotObservers = new CopyOnWriteArrayList<>();
     private IShellService watchedService;
+    private final CopyOnWriteArrayList<Runnable> switchObservers = new CopyOnWriteArrayList<>();
+    private IShellService switchService;
+    private android.database.ContentObserver switchSettings;
+    private android.content.BroadcastReceiver switchBroadcasts;
+    private final IConnectivityListener switchEvents = new IConnectivityListener.Stub() {
+        @Override public void onChanged() { main.post(ShizukuBridge.this::notifySwitches); }
+    };
     private boolean nfcRegistered;
     private final android.content.BroadcastReceiver nfcEvents = new android.content.BroadcastReceiver() {
         @Override public void onReceive(Context context, android.content.Intent intent) { if (android.nfc.NfcAdapter.ACTION_ADAPTER_STATE_CHANGED.equals(intent.getAction())) notifyConnectivity(); }
@@ -97,7 +104,39 @@ public final class ShizukuBridge {
     }
     public void addObserver(Runnable observer) { observers.addIfAbsent(observer); }
     public void removeObserver(Runnable observer) { observers.remove(observer); }
-    private void changed() { for (Runnable observer : observers) main.post(observer); updateConnectivityWatch(); main.post(this::notifyConnectivity); }
+    private void changed() { for (Runnable observer : observers) main.post(observer); updateConnectivityWatch(); updateSwitchWatch(); main.post(this::notifyConnectivity); main.post(this::notifySwitches); }
+    void addSwitchObserver(Runnable observer) {
+        switchObservers.addIfAbsent(observer);
+        if (switchSettings == null) {
+            switchSettings = new android.database.ContentObserver(main) {
+                @Override public void onChange(boolean selfChange, android.net.Uri uri) { if (SystemSwitches.settingChanged(uri == null ? null : uri.getLastPathSegment())) notifySwitches(); }
+            };
+            // ContentService requires a registered app process; a Shizuku UserService has no app PID.
+            application.getContentResolver().registerContentObserver(android.provider.Settings.Global.CONTENT_URI, true, switchSettings);
+            switchBroadcasts = new android.content.BroadcastReceiver() { @Override public void onReceive(Context context, android.content.Intent intent) { notifySwitches(); } };
+            android.content.IntentFilter filter = new android.content.IntentFilter(android.net.wifi.WifiManager.WIFI_STATE_CHANGED_ACTION); filter.addAction(android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED);
+            application.registerReceiver(switchBroadcasts, filter, null, main, Context.RECEIVER_EXPORTED);
+        }
+        updateSwitchWatch();
+    }
+    void removeSwitchObserver(Runnable observer) {
+        switchObservers.remove(observer);
+        if (switchObservers.isEmpty() && switchSettings != null) {
+            application.getContentResolver().unregisterContentObserver(switchSettings); switchSettings = null;
+            if (switchBroadcasts != null) { application.unregisterReceiver(switchBroadcasts); switchBroadcasts = null; }
+        }
+        updateSwitchWatch();
+    }
+    private void notifySwitches() { for (Runnable observer : switchObservers) observer.run(); }
+    private void updateSwitchWatch() {
+        executor.execute(() -> {
+            IShellService wanted = switchObservers.isEmpty() ? null : remote;
+            if (switchService == wanted) return;
+            if (switchService != null) try { switchService.watchSwitches(null); } catch (Exception ignored) { }
+            switchService = null;
+            if (wanted != null) try { wanted.watchSwitches(switchEvents); switchService = wanted; } catch (Exception ignored) { }
+        });
+    }
     void addConnectivityObserver(Runnable observer, boolean hotspot) {
         connectivityObservers.addIfAbsent(observer);
         if (hotspot) hotspotObservers.addIfAbsent(observer);

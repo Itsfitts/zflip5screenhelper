@@ -41,6 +41,7 @@ final class TaskRestoreChecks {
             for (int count : new int[]{1, 3}) {
                 CountDownLatch started = new CountDownLatch(1); release[0] = new CountDownLatch(1); CountDownLatch gate = release[0];
                 field(bridge, "remote", new IShellService.Stub() {
+                    @Override public void watchSwitches(IConnectivityListener listener) { }
                     public String execute(String operation, int display, int value, String component) {
                         require(operation.equals("recent_open") && display == virtual.getDisplay().getDisplayId(), "restore uses exact selected display and task boundary"); started.countDown();
                         try { if (!gate.await(5, TimeUnit.SECONDS)) throw new AssertionError("fixture response timeout"); } catch (InterruptedException error) { throw new AssertionError(error); }

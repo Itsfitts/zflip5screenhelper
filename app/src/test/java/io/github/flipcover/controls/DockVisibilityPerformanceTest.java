@@ -29,16 +29,16 @@ public class DockVisibilityPerformanceTest {
         for (int i = 0; i < 100; i++) { state.foreground("app" + i); assertFalse(state.compact(true, empty)); assertFalse(state.compact(false, selected)); }
         assertEquals(0, empty.lookups); assertEquals(0, selected.lookups);
     }
-    @Test public void changedSnapshotsAndDisplayResetRecomputeWithoutChangingManualChoices() {
+    @Test public void changedSnapshotsAndDisplayResetRecomputeWithoutChangingArrowExpansion() {
         DockVisibility state = new DockVisibility(); Rules selected = new Rules("app"), removed = new Rules();
         state.foreground("app"); assertTrue(state.compact(true, selected));
         assertFalse(state.compact(true, removed));
         Rules other = new Rules("other"); assertFalse(state.compact(true, other)); assertEquals(1, other.lookups);
-        state.toggle(true, other); assertTrue(state.compact(true, other));
-        state.keyboard(true); state.toggle(true, other); assertFalse(state.compact(true, other));
+        state.expandable(true); assertTrue(state.compact(true, other));
+        state.toggle(true, other); state.keyboard(true); assertFalse(state.compact(true, other));
         assertEquals(1, other.lookups);
-        state.rulesChanged(); assertFalse(state.compact(true, other)); assertEquals(1, other.lookups);
-        state.keyboard(false); assertTrue(state.compact(true, other));
+        state.rulesChanged(); assertFalse(state.compact(true, other)); assertEquals(2, other.lookups);
+        state.keyboard(false); assertFalse(state.compact(true, other));
         state.reset(); assertTrue(state.compact(true, selected));
         state.foreground("app"); assertTrue(state.compact(true, selected)); assertEquals(2, selected.lookups);
     }

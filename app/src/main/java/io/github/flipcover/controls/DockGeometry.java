@@ -27,11 +27,13 @@ public final class DockGeometry {
         float t = Math.max(0, Math.min(1, progress));
         return new Box(Math.round(from.x() + (to.x() - from.x()) * t), Math.round(from.y() + (to.y() - from.y()) * t), from.width(), from.height());
     }
-    static ClockHandle clockHandlePositions(Placement dock, Box expanded, Box systemSafe) {
-        Box visual = dock.visual().intersect(systemSafe);
-        int w = Math.min(expanded.width(), visual.width()), h = Math.min(expanded.height(), visual.height());
-        Box collapsed = new Box(visual.x() + (visual.width() - w) / 2, visual.y() + (visual.height() - h) / 2, w, h);
+    static ClockHandle clockHandlePositions(Placement dock, Box expanded) {
+        // The collapsed handle follows the dock's existing cutout/navigation
+        // placement, without applying a second app-dependent inward offset.
+        Box visual = dock.visual();
+        int w = Math.min(expanded.width(), dock.visual().width()), h = Math.min(expanded.height(), dock.visual().height());
         Box open = new Box(expanded.x() + (expanded.width() - w) / 2, expanded.y() + (expanded.height() - h) / 2, w, h);
+        Box collapsed = new Box(visual.x() + (visual.width() - w) / 2, visual.y() + (visual.height() - h) / 2, w, h);
         return new ClockHandle(collapsed, open);
     }
     /** One small target on the inward side of the dock, clear of buttons and physical/system edges. */

@@ -21,9 +21,11 @@ final class CoverRotation {
     boolean enabled() { return enabled; }
     boolean start() {
         if (owner.display == null || owner.display.getDisplayId() <= 0 || !sensor.canDetectOrientation() || !CoverApp.bridge(owner).granted()) return false;
-        stop(); enabled = true; displayId = owner.display.getDisplayId(); referenceRotation = owner.display.getRotation(); sensor.enable(); return true;
+        stop(); enabled = true; displayId = owner.display.getDisplayId(); referenceRotation = owner.display.getRotation(); sensor.enable(); owner.rotationStateChanged(); return true;
     }
-    void stop() { generation++; enabled = false; afterFlight = null; reference = candidate = -1; owner.main.removeCallbacks(apply); sensor.disable(); }
+    void stop() { boolean changed = enabled; generation++; enabled = false; afterFlight = null; reference = candidate = -1; owner.main.removeCallbacks(apply); sensor.disable(); if (changed) owner.rotationStateChanged(); }
+    static int systemMode(boolean ok, String output) { if (!ok || output == null) return -1; String state = output.trim(); return state.equals("free") ? 0 : state.matches("lock [0-3]") ? 1 : -1; }
+    static String label(boolean automatic, int mode) { return automatic ? "工具自动旋转" : mode == 1 ? "旋转锁定" : mode == 0 ? "系统旋转" : "旋转状态未知"; }
     void afterCurrent(Runnable action) { if (busy) afterFlight = action; else action.run(); }
     boolean valid() {
         Display selected = Displays.selected(owner, owner.prefs);
@@ -51,7 +53,8 @@ final class CoverRotation {
             busy = false;
             if (version != generation) { Runnable next = afterFlight; afterFlight = null; if (next != null && CoverService.instance == owner) next.run(); else if (valid() && candidate >= 0) owner.main.postDelayed(apply, 280); return; }
             if (!valid()) { stop(); return; }
-            if (!result.ok) { stop(); owner.message("自动旋转已暂停：" + result.message); return; }
+            if (!result.ok) { stop(); owner.controlStatesChanged(); owner.message("自动旋转已暂停：" + result.message); return; }
+            owner.rotationConfirmed(result);
             if (candidate >= 0 && candidate != angle) owner.main.postDelayed(apply, 280);
         });
     }

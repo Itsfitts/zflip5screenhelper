@@ -39,6 +39,7 @@ final class LockWakeChecks {
         main(() -> { owner = new CoverService(); owner.prefs = prefs; CoverService.instance = owner; });
         Method attach = ContextWrapper.class.getDeclaredMethod("attachBaseContext", Context.class); attach.setAccessible(true); attach.invoke(owner, recording);
         try {
+            verifySelectedDisplayOff(prefs);
             // An absent target exercises cancellation without mounting any window.
             data.edit().putBoolean("enabled", true).putInt("display", Integer.MAX_VALUE).commit();
             main(() -> { try { call("registerScreenEvents"); } catch (Exception failure) { throw new AssertionError(failure); } });
@@ -77,5 +78,25 @@ final class LockWakeChecks {
             ((java.util.concurrent.ExecutorService) field("files")).shutdown();
             SharedPreferences.Editor edit = data.edit(); if (hadEnabled) edit.putBoolean("enabled", enabled); else edit.remove("enabled"); if (hadDisplay) edit.putInt("display", display); else edit.remove("display"); edit.commit();
         }
+    }
+    private void verifySelectedDisplayOff(Prefs prefs) throws Exception {
+        android.hardware.display.DisplayManager displays = test.getTargetContext().getSystemService(android.hardware.display.DisplayManager.class);
+        android.hardware.display.VirtualDisplay target = displays.createVirtualDisplay("dock-mode-session-test", 720, 748, 340, null, 0);
+        require(target != null, "isolated secondary display created");
+        try {
+            android.view.Display off = target.getDisplay();
+            require(off.getDisplayId() != 0 && off.getState() == android.view.Display.STATE_OFF, "secondary display is off while main display stays on");
+            prefs.data.edit().putBoolean("enabled", true).putInt("display", off.getDisplayId()).commit();
+            main(() -> {
+                try {
+                    owner.display = off;
+                    DockVisibility state = (DockVisibility) field("dockVisibility"); state.expandable(true); state.toggle(false, java.util.Set.of());
+                    require(!state.compact(false, java.util.Set.of()), "arrow session starts expanded before external display shuts down");
+                    Method reconcile = CoverService.class.getDeclaredMethod("reconcile", boolean.class); reconcile.setAccessible(true); reconcile.invoke(owner, false);
+                    require(state.expandable() && state.compact(false, java.util.Set.of()), "selected display off clears expansion without a global screen-off broadcast or mode change");
+                    state.expandable(prefs.dockExpandable());
+                } catch (Exception failure) { throw new AssertionError(failure); }
+            });
+        } finally { owner.display = null; target.release(); }
     }
 }

@@ -143,6 +143,8 @@ public final class Prefs {
         return result;
     }
     public boolean autoHideDock() { return data.getBoolean("dock_auto_hide", BuildConfig.DEFAULTS_DOCK_AUTO_HIDE); }
+    public boolean dockExpandable() { return data.getBoolean("dock_expandable", BuildConfig.DEFAULTS_DOCK_EXPANDABLE); }
+    void dockExpandable(boolean value) { data.edit().putBoolean("dock_expandable", value).apply(); }
     public String homeAction() { String value = data.getString("home_action", BuildConfig.DEFAULTS_DOCK_HOME_ACTION); return validHomeAction(value) ? value : BuildConfig.DEFAULTS_DOCK_HOME_ACTION; }
     static boolean validHomeAction(String value) { return "clock".equals(value) || "cards".equals(value); }
     public boolean avoidKeyboard() { return data.getBoolean("avoid_keyboard", BuildConfig.DEFAULTS_DOCK_AVOID_KEYBOARD); }
@@ -278,13 +280,16 @@ public final class Prefs {
         JSONObject layout = new JSONObject().put("version", 11).put("workspace", workspaceJson(workspace())).put("workspaceColumns", workspace().columns()).put("workspaceRows", workspace().rows()).put("workspaceLocked", workspaceLocked()).put("workspaceLabels", workspaceLabels()).put("workspaceBadges", workspaceBadges()).put("workspaceDensity", workspaceDensity()).put("workspaceAliases", workspaceAliases()).put("workspaceCompact", workspaceCompact()).put("panelColumns", panelColumns()).put("panelOptions", panelOptions).put("hubPins", new JSONArray(hubPins())).put("hubSort", hubSort()).put("chrome", chromeStyle()).put("statusScale", statusScale()).put("statusSafeLeft", statusSafeLeft()).put("statusSafeRight", statusSafeRight()).put("batteryPercent", batteryPercent()).put("avoidNavigation", avoidNavigation()).put("navigationGap", navigationGap()).put("tapHandles", tapHandles()).put("hand", handSide()).put("perPage", perPage()).put("pinned", pinnedAction()).put("hubPinned", hubPinned()).put("damping", damping())
             .put("dock", new JSONArray(actions("dock"))).put("panel", new JSONArray(actions("panel"))).put("favorites", new JSONArray(actions("favorites")))
             .put("automatic", data.getBoolean("auto_placement", true)).put("width", widthRatio()).put("height", heightRatio()).put("blur", panelBlur()).put("statusEnabled", statusEnabled());
-        layout.put("homeAction", homeAction()).put("statusHiddenApps", new JSONArray(statusHiddenApps()));
+        layout.put("homeAction", homeAction()).put("statusHiddenApps", new JSONArray(statusHiddenApps())).put("dockExpandable", dockExpandable());
         JSONArray entries = new JSONArray(); for (int rotation = 0; rotation < 4; rotation++) entries.put(entryPosition(rotation)); layout.put("panelEntries", entries);
         JSONArray corners = new JSONArray(); for (int rotation = 0; rotation < 4; rotation++) corners.put(corner(rotation)); layout.put("corners", corners);
         JSONObject status = new JSONObject(); for (String item : STATUS_ITEMS) status.put(item, statusItem(item)); return layout.put("statusItems", status);
     }
     /** Builds one unapplied editor; malformed input cannot partially change the live layout. */
     SharedPreferences.Editor prepareLayout(JSONObject layout, SharedPreferences.Editor update) throws JSONException {
+        Object mode = layout.has("dockExpandable") ? layout.get("dockExpandable") : false;
+        if (!(mode instanceof Boolean)) throw new IllegalArgumentException("快捷栏模式无效");
+        update.putBoolean("dock_expandable", (Boolean) mode);
         for (String key : new String[]{"version", "perPage", "damping"}) workspaceInteger(layout.get(key));
         for (String key : new String[]{"automatic", "blur", "statusEnabled", "batteryPercent", "avoidNavigation", "tapHandles"}) if (layout.has(key) && !(layout.get(key) instanceof Boolean)) throw new IllegalArgumentException("布局开关值无效");
         for (String key : new String[]{"width", "height"}) if (!(layout.get(key) instanceof Number)) throw new IllegalArgumentException("布局尺寸无效");

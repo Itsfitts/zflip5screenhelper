@@ -22,7 +22,7 @@ public final class DockView extends InputSurface {
         default void beginPull(String page, float distance, float originY) { }
         default void pull(String page, float distance) { }
         default void release(String page, float distance, float velocity, boolean canceled) { }
-        default void toggleVisibility() { }
+        default void toggleMode() { }
     }
     private final DockGeometry.Placement placement;
     private final DockGeometry.Chrome chrome;
@@ -163,6 +163,8 @@ public final class DockView extends InputSurface {
     }
     public int page() { return page; }
     public boolean compact() { return compact; }
+    void modeChanged() { setStateDescription(prefs.dockExpandable() ? "收起展开模式" : "常驻模式"); }
+    void geometryChanged() { endTouch(); gesture.reset(); track.animate().cancel(); snap(false); }
     /** Clock-page toggles keep this full-sized window below the moving arrow. */
     void compact(boolean value) {
         if (compact == value) return;
@@ -257,7 +259,7 @@ public final class DockView extends InputSurface {
             else track.animate().translationX(-page * extent).setDuration(160).start();
         } else if (placement.vertical()) track.setTranslationY(-page * extent); else track.setTranslationX(-page * extent);
         for (int i = 0; i < pages.size(); i++) pages.get(i).setImportantForAccessibility(i == page ? IMPORTANT_FOR_ACCESSIBILITY_AUTO : IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        dots.invalidate(); setContentDescription("快捷栏，第 " + (page + 1) + " 页，共 " + pages.size() + " 页；点击按钮，滑动翻页，长按图标配置；底部横向双白条上滑打开面板，白条可见时长按切换按钮显示");
+        dots.invalidate(); setContentDescription("快捷栏，第 " + (page + 1) + " 页，共 " + pages.size() + " 页；点击按钮，滑动翻页，长按图标配置；双白条滑入打开面板，白条可见时长按切换常驻／收起展开模式"); modeChanged();
     }
     @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info); info.setScrollable(true);
@@ -265,10 +267,10 @@ public final class DockView extends InputSurface {
         if (page + 1 < pages.size()) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
         info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.open_notifications, "打开跟手通知面板"));
         info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.open_controls, "打开控制中心"));
-        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_dock, "显示或隐藏快捷按钮"));
+        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_dock, prefs.dockExpandable() ? "切换为常驻模式" : "切换为收起展开模式"));
     }
     @Override public boolean performAccessibilityAction(int action, Bundle args) {
-        if (action == R.id.toggle_dock) { listener.toggleVisibility(); return true; }
+        if (action == R.id.toggle_dock) { listener.toggleMode(); return true; }
         if (action == R.id.open_notifications) { listener.action("notification_list"); return true; }
         if (action == R.id.open_controls) { listener.action("controls"); return true; }
         if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) { page = Math.min(pages.size() - 1, page + 1); snap(true); return true; }

@@ -129,6 +129,8 @@ final class NativeWidgetChecks {
             });
             until(() -> bridge.inner(outer) <= 0, "native card deletion clears persisted binding");
             require(java.util.Arrays.stream(bridge.host().getAppWidgetIds()).noneMatch(id -> id == inner), "native card deletion releases inner system widget ID");
+            checkEditorEntries(context, manager, display.getDisplay().getDisplayId(), 1, 2, 3, 4, 5, 6);
+            checkEditorEntries(context, manager, display.getDisplay().getDisplayId(), 6, 5, 4, 3, 2, 1);
             return "PASS: " + assertions + " native widget assertions; real Android relay, not Samsung host verification";
         } finally {
             main(() -> { if (outerHost != null) { outerHost.stopListening(); outerHost.deleteHost(); } if (bridge != null) { if (outer > 0) bridge.remove(outer); bridge.refresh(); } if (activity != null) activity.finish(); });
@@ -215,6 +217,66 @@ final class NativeWidgetChecks {
         context.sendBroadcast(new Intent("fixture.UPDATE").setComponent(new ComponentName(test.getContext().getPackageName(), WidgetFixtureProvider.class.getName())).putExtra("value", 11).putExtra("only_id", inner));
         until(() -> text(rendered, "跨应用更新 11") != null && text(rendered, "跨应用更新 1") != null, "trim then single-provider update preserves other static widget");
         main(() -> { ViewGroup grid = rendered.findViewById(R.id.widget_grid_root); require(grid.getChildAt(1).getLeft() >= grid.getChildAt(0).getRight(), "RTL preserves physical grid columns"); rendered.setLayoutDirection(View.LAYOUT_DIRECTION_LTR); require(bridge.commitLayout(outer, java.util.List.of()), "clear selected card before configure test"); });
+    }
+    private void checkEditorEntries(Context context, AppWidgetManager manager, int targetDisplay, int... order) {
+        int[] ids = new int[NativeWidgetProvider.TYPES.length];
+        Activity previousHost = activity;
+        activity = test.startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK), android.app.ActivityOptions.makeBasic().setLaunchDisplayId(targetDisplay).toBundle());
+        Instrumentation.ActivityMonitor monitor = test.addMonitor(NativeWidgetActivity.class.getName(), null, false);
+        Activity[] editor = {null};
+        try {
+            main(() -> {
+                require(activity.getDisplay().getDisplayId() == targetDisplay, "card host itself runs on selected secondary display");
+                require(bridge.cards().length == 0 && outerHost.getAppWidgetIds().length == 0, "addition order starts without any card already bound");
+            });
+            for (int slot : order) {
+                main(() -> {
+                    int index = slot - 1; ids[index] = outerHost.allocateAppWidgetId(); Bundle size = new Bundle();
+                    size.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 300); size.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 300);
+                    size.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 300); size.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 300);
+                    require(manager.bindAppWidgetIdIfAllowed(ids[index], new ComponentName(context, NativeWidgetProvider.TYPES[index]), size), "empty card binds for slot " + slot);
+                    bridge.refresh();
+                    int[] expected = java.util.Arrays.stream(ids).filter(value -> value > 0).sorted().toArray();
+                    require(java.util.Arrays.equals(expected, java.util.Arrays.stream(bridge.cards()).sorted().toArray()), "adding slot " + slot + " exposes exactly the bound cards without duplicates");
+                    require(java.util.Arrays.equals(expected, java.util.Arrays.stream(outerHost.getAppWidgetIds()).sorted().toArray()), "adding slot " + slot + " allocates exactly one system instance");
+                });
+                int id = ids[slot - 1];
+                main(() -> showCard(manager, id));
+                until(() -> text(rendered, "布置这张卡片(" + slot + ")") != null && rendered.findViewById(R.id.native_widget_message).hasOnClickListeners(), "slot " + slot + " receives a correctly numbered actionable empty card");
+                if (slot == 1) capture(activity, "empty-card");
+                for (boolean configure : new boolean[]{false, true}) {
+                    String entry = "slot " + slot + (configure ? " host configure" : " empty-card click");
+                    main(() -> {
+                        if (configure) outerHost.startAppWidgetConfigureActivityForResult(activity, id, 0, 73, android.app.ActivityOptions.makeBasic().setLaunchDisplayId(targetDisplay).toBundle());
+                        else require(rendered.findViewById(R.id.native_widget_message).performClick(), entry + " dispatched");
+                    });
+                    editor[0] = monitor.waitForActivityWithTimeout(5000);
+                    require(editor[0] != null, entry + " opens editor"); test.waitForIdleSync();
+                    main(() -> {
+                        require(!editor[0].isFinishing(), entry + " keeps editor open");
+                        require(editor[0].getIntent().getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) == id && bridge.slot(id) == slot, entry + " preserves exact card identity");
+                        require(editor[0].getDisplay().getDisplayId() == targetDisplay, entry + " stays on selected secondary display");
+                        require(editor[0].getWindow().getDecorView().findViewWithTag("widget-open-picker") != null, entry + " shows editor controls");
+                        editor[0].finish();
+                    });
+                    until(() -> editor[0].isDestroyed(), entry + " releases editor session"); editor[0] = null;
+                    require(bridge.items(id).isEmpty(), entry + " cancel preserves empty layout");
+                }
+            }
+        } finally {
+            test.removeMonitor(monitor);
+            main(() -> {
+                if (editor[0] != null) editor[0].finish();
+                for (int id : ids) if (id > 0) outerHost.deleteAppWidgetId(id);
+                activity.finish(); activity = previousHost;
+                bridge.refresh();
+            });
+        }
+    }
+    private void showCard(AppWidgetManager manager, int id) {
+        rendered = outerHost.createView(activity, id, manager.getAppWidgetInfo(id)); FrameLayout root = new FrameLayout(activity);
+        int pixels = Math.round(300 * activity.getResources().getDisplayMetrics().density);
+        root.addView(rendered, new FrameLayout.LayoutParams(pixels, pixels)); activity.setContentView(root);
     }
     private void capture(Activity screen, String name) {
         main(() -> {

@@ -98,7 +98,7 @@ final class DockInputChecks {
         dock = new DockView(activity, prefs, place, page, new DockView.Listener() {
             public void action(String id) { actions.add(id); }
             public void configure() { configurations++; }
-            public void toggleVisibility() { toggles++; }
+            public void toggleMode() { toggles++; }
             public void beginPull(String name, float distance, float originY) { begins++; panel = name; }
             public void release(String name, float distance, float speed, boolean cancel) { releases++; canceled = cancel; }
         }, compact);

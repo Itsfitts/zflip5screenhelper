@@ -102,7 +102,7 @@ final class PanelEntryChecks {
             public void beginPull(String name, float value, float originY) { begins++; page = name; }
             public void pull(String name, float value) { distance = value; }
             public void release(String name, float value, float speed, boolean cancel) { releases++; canceled = cancel; }
-            public void toggleVisibility() { toggles++; }
+            public void toggleMode() { toggles++; }
         });
         root.addView(entry, new FrameLayout.LayoutParams(400, 48)); activity.setContentView(root);
         root.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY)); root.layout(0, 0, 600, 600);

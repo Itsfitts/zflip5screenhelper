@@ -26,6 +26,7 @@ final class HomeReturnChecks {
         AtomicBoolean active = new AtomicBoolean(true), callbackOnMain = new AtomicBoolean(); AtomicInteger calls = new AtomicInteger();
         AtomicReference<ShizukuBridge.Result> result = new AtomicReference<>(), duplicate = new AtomicReference<>();
         IShellService fake = new IShellService.Stub() {
+            @Override public void watchSwitches(IConnectivityListener listener) { }
             public void watchConnectivity(IConnectivityListener listener) { }
             public String execute(String operation, int display, int value, String item) {
                 if (!operation.equals("native_home") || display != 7 || value != 0 || !item.isEmpty()) throw new AssertionError("fixed Home request retained");

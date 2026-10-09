@@ -20,6 +20,7 @@
       "widthRatio": 0.46,
       "heightRatio": 0.088,
       "autoHide": true,
+      "expandable": false,
       "avoidKeyboard": true,
       "haptics": true,
       "gestures": true,

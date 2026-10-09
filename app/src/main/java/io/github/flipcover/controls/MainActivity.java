@@ -60,6 +60,9 @@ public final class MainActivity extends Activity {
     private final SettingsNavigator navigator = new SettingsNavigator();
     private final List<Runnable> statusUpdates = new ArrayList<>();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final android.content.SharedPreferences.OnSharedPreferenceChangeListener modeChanged = (data, key) -> {
+        if (key == null || key.equals("dock_expandable")) main.post(this::syncDockModeSetting);
+    };
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Runnable statusRefresh = new Runnable() {
         @Override public void run() { refreshStatus(); main.postDelayed(this, 1200); }
@@ -82,10 +85,12 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); main.removeCallbacks(statusRefresh); main.post(statusRefresh); CoverApp.bridge(this).connect();
+        prefs.data.registerOnSharedPreferenceChangeListener(modeChanged); syncDockModeSetting();
         if (updateSettings != null) updateSettings.refresh();
         if (statusPreview != null && statusPreviewHost != null && statusPreview.getParent() == null) statusPreviewHost.addView(statusPreview, new LinearLayout.LayoutParams(-1, statusPreview.heightPixels()));
     }
     @Override protected void onPause() {
+        prefs.data.unregisterOnSharedPreferenceChangeListener(modeChanged);
         main.removeCallbacks(statusRefresh);
         if (updateSettings != null) updateSettings.pause();
         if (orderList != null) orderList.cancelDrag();
@@ -183,7 +188,7 @@ public final class MainActivity extends Activity {
     private List<Setting> settings() {
         return List.of(
             new Setting("快捷栏与手势", "dock", R.drawable.ic_ms_tune, "按钮与布局", "数量 固定键 顺序 阻尼 快捷栏 Home 主页 锁屏 应用中心", () -> prefs.perPage() + " 个 / 页 · " + ActionCatalog.label(this, prefs.pinnedAction())),
-            new Setting("快捷栏与手势", "visibility", R.drawable.ic_ms_home, "自动显示与收起", "隐藏 桌面 键盘 应用名单", () -> prefs.autoHideDock() ? "按前台应用自动收起" : "手动切换"),
+            new Setting("快捷栏与手势", "visibility", R.drawable.ic_ms_home, "快捷栏模式与收起", "常驻 收起 展开 箭头 按前台应用自动隐藏 桌面 键盘 应用名单", this::dockModeLabel),
             new Setting("快捷栏与手势", "gestures", R.drawable.ic_ms_swap_vert, "手势与导航避让", "震动 偏移 白条 摄像头 上滑 通知 旋转 位置 安全区 Home 返回", () -> prefs.gesturesEnabled() ? "白条拖动已开启" : "白条拖动已关闭"),
             new Setting("快捷栏与手势", "hand", R.drawable.ic_ms_accessibility_new, "单手布局", "左手 右手", () -> handLabel()),
             new Setting("状态栏与外观", "settings_scale", R.drawable.ic_ms_accessibility_new, "设置界面缩放", "大小 字号 缩放", () -> prefs.settingsScale() + "%"),
@@ -220,7 +225,7 @@ public final class MainActivity extends Activity {
             results.removeAllViews(); String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT); footer.setVisibility(query.isEmpty() ? View.VISIBLE : View.GONE);
             if (query.isEmpty()) {
                 LinearLayout group = SettingsUi.group(this); results.addView(group);
-                String[][] groups = {{"group_dock", "快捷栏与手势", prefs.perPage() + " 个 / 页 · " + (prefs.autoHideDock() ? "自动收起" : "手动切换")}, {"group_appearance", "状态栏与外观", prefs.statusScale() + "% · " + appearanceLabel()}, {"panel", "控制中心", prefs.panelColumns() + " 列 · 布局与工具"}, {"group_apps", "应用与小组件", "固定应用 " + prefs.hubPins().size() + "/" + AppDockPlacement.LIMIT}, {"group_device", "设备与权限", displaySummary()}, {"input_devices", "鼠标与触控板", "按设备选择方向导航或指针操作"}};
+                String[][] groups = {{"group_dock", "快捷栏与手势", prefs.perPage() + " 个 / 页 · " + dockModeLabel()}, {"group_appearance", "状态栏与外观", prefs.statusScale() + "% · " + appearanceLabel()}, {"panel", "控制中心", prefs.panelColumns() + " 列 · 布局与工具"}, {"group_apps", "应用与小组件", "固定应用 " + prefs.hubPins().size() + "/" + AppDockPlacement.LIMIT}, {"group_device", "设备与权限", displaySummary()}, {"input_devices", "鼠标与触控板", "按设备选择方向导航或指针操作"}};
                 int[] icons = {R.drawable.ic_ms_tune, R.drawable.ic_ms_brightness_6, R.drawable.ic_ms_view_carousel, R.drawable.ic_ms_apps, R.drawable.ic_ms_shield, R.drawable.ic_input_devices};
                 for (int i = 0; i < groups.length; i++) link(group, icons[i], groups[i][1], groups[i][2], groups[i][0]);
                 link(group, R.drawable.ic_ms_refresh, "备份与关于", "版本 " + BuildConfig.VERSION_NAME, "group_backup");
@@ -321,7 +326,7 @@ public final class MainActivity extends Activity {
             choice(positions, angle * 90 + "° · 白条位置", "entry-position-" + angle, labels, values, () -> prefs.entryPosition(angle), value -> { prefs.entryPosition(angle, (String) value); preview.refreshGestures(); });
         }
         note("顶部白条向下滑，通知和控制中心从上方跟手展开、向上收起；右底部白条向上滑，面板从下方展开、向下收起。白条平时隐藏，触摸入口仍保留。");
-        LinearLayout gestures = group("gesture-options"); toggle(gestures, "白条滑入", "白条可见时长按可切换快捷按钮，隐藏时长按无效", "gestures_enabled", BuildConfig.DEFAULTS_DOCK_GESTURES); toggle(gestures, "震动反馈", "遵循系统震动设置", "haptics", BuildConfig.DEFAULTS_DOCK_HAPTICS);
+        LinearLayout gestures = group("gesture-options"); toggle(gestures, "白条滑入", "白条可见时长按切换常驻／收起展开模式，透明时长按无效", "gestures_enabled", BuildConfig.DEFAULTS_DOCK_GESTURES); toggle(gestures, "震动反馈", "遵循系统震动设置", "haptics", BuildConfig.DEFAULTS_DOCK_HAPTICS);
         LinearLayout navigation = group("navigation-options"); toggle(navigation, "快捷按钮避让导航区", "仅移动快捷按钮；白条位置由上方各方向选项设置", "avoid_navigation", false); slider(navigation, "快捷按钮额外向内偏移", "navigation_gap", 0, 48, prefs.navigationGap(), "dp", value -> { }, value -> prefs.data.edit().putInt("navigation_gap", value).apply());
         SettingsUi.section(body, "为什么各方向的选项不同？");
         note("三星外屏侧边滑入仍可能触发系统返回，底边上滑也可能回到时钟。现在改用顶部或右底部的横向入口，并结合摄像头缺口避让；可按握持习惯分别选择位置。180° 固定左顶部。");
@@ -339,9 +344,33 @@ public final class MainActivity extends Activity {
             DockView dock = new DockView(this, prefs, placement, 0, new DockView.Listener() { @Override public void action(String id) { toast("预览：" + ActionCatalog.label(MainActivity.this, id)); } @Override public void configure() { } }); preview.addView(dock, new FrameLayout.LayoutParams(width, height, Gravity.CENTER));
         });
     }
-    private void visibilitySettings() { begin("自动显示与收起", "visibility"); LinearLayout group = group("visibility-options"); toggle(group, "按前台应用自动收起", "桌面与系统面板隐藏快捷按钮，底部上滑入口保留", "dock_auto_hide", BuildConfig.DEFAULTS_DOCK_AUTO_HIDE); toggle(group, "键盘出现时收起", "仅检测外屏输入法窗口，收起后恢复", "avoid_keyboard", BuildConfig.DEFAULTS_DOCK_AVOID_KEYBOARD); link(group, 0, "指定应用隐藏快捷按钮", prefs.compactApps().size() + " 个应用", "visibility_apps"); note("白条可见时长按临时切换，隐藏时长按无效；换应用后恢复自动规则。只读取外屏窗口元数据，不读取页面文字或输入内容。"); }
+    private void visibilitySettings() {
+        begin("快捷栏模式与收起", "visibility");
+        LinearLayout mode = group("visibility-mode");
+        toggle(mode, "收起展开模式", dockModeSummary(), "dock_expandable", BuildConfig.DEFAULTS_DOCK_EXPANDABLE);
+        note("长按可见白条是此开关的快捷方式。箭头单击展开／收起，切换应用和返回桌面保持当前状态；息屏后保留模式，再次亮屏从收起开始。");
+        LinearLayout group = group("visibility-options");
+        toggle(group, "按前台应用自动隐藏", "指定应用中的快捷栏和箭头都隐藏；时钟首页保留箭头", "dock_auto_hide", BuildConfig.DEFAULTS_DOCK_AUTO_HIDE);
+        toggle(group, "键盘出现时收起", "常驻模式下，仅检测外屏键盘，关闭键盘后恢复", "avoid_keyboard", BuildConfig.DEFAULTS_DOCK_AVOID_KEYBOARD);
+        link(group, 0, "选择自动隐藏的应用", prefs.compactApps().size() + " 个应用", "visibility_apps");
+        note("两种模式下，时钟首页都保留箭头入口；其他应用遵循自动隐藏名单。键盘避让仅用于常驻模式。双白条入口保留。只读取外屏窗口元数据，不读取页面文字或输入内容。");
+    }
+    private String dockModeLabel() { return prefs.dockExpandable() ? "收起展开模式" : "常驻模式"; }
+    private String dockModeSummary() { return prefs.dockExpandable() ? "已开启 · 点击箭头展开或收起快捷栏" : "已关闭 · 常驻模式，仍遵循下方自动避让设置"; }
+    private void syncDockModeSetting() {
+        if (body == null) return;
+        SettingsUi.ValueRow home = body.findViewWithTag("settings-link-group_dock"), result = body.findViewWithTag("search-visibility");
+        if (home != null) home.value(prefs.perPage() + " 个 / 页 · " + dockModeLabel());
+        if (result != null) result.value(dockModeLabel() + "\n快捷栏与手势");
+        if (route.equals("group_dock")) { SettingsUi.ValueRow row = body.findViewWithTag("settings-link-visibility"); if (row != null) row.value(dockModeLabel()); }
+        View control = body.findViewWithTag("dock_expandable");
+        if (!(control instanceof Switch toggle)) return;
+        bindingUI = true;
+        try { toggle.setChecked(prefs.dockExpandable()); SettingsUi.toggleSummary(toggle).setText(dockModeSummary()); toggle.setContentDescription("收起展开模式，" + dockModeSummary()); }
+        finally { bindingUI = false; }
+    }
     private void applicationList(boolean orientations) {
-        begin(orientations ? "应用方向" : "指定应用隐藏快捷按钮", orientations ? "orientations" : "visibility_apps");
+        begin(orientations ? "应用方向" : "选择自动隐藏的应用", orientations ? "orientations" : "visibility_apps");
         SettingsApplications list = new SettingsApplications(this, prefs, orientations ? "orientations" : "visibility", pageState, entry -> { orientationPackage = entry.packageName(); orientationTitle = entry.label(); appOrientation(); });
         showApplications(list);
     }
@@ -365,7 +394,7 @@ public final class MainActivity extends Activity {
             LinearLayout options = group("dock-options"); options.addView(SettingsUi.valueRow(this, "固定按钮", ActionCatalog.label(this, prefs.pinnedAction()), () -> { editing = "pinned"; library("builtin", false); }));
             choice(options, "Home 按钮效果", "dock-home-action", new String[]{"返回锁屏页面（时钟首页）", "返回应用中心（需 Shizuku）"}, new Object[]{"clock", "cards"}, () -> prefs.homeAction(), value -> prefs.data.edit().putString("home_action", (String) value).apply());
             choice(options, "起步阻尼", "dock-damping", new String[]{"轻", "标准", "强"}, new Object[]{0, 1, 2}, () -> prefs.damping(), value -> prefs.data.edit().putInt("damping", (int) value).apply());
-            options.addView(SettingsUi.valueRow(this, "按钮顺序", prefs.scrollingActions().size() + " 个翻页按钮", () -> orderEditor("dock"))); note("每页包含 1 个固定按钮，其余按钮可滑动翻页。"); note("返回锁屏页面：回到三星时钟首页，不主动锁定手机。返回应用中心：需要 Shizuku，返回三星保留的原卡片页；如果已切到其他卡片，会返回那一页。"); related("自动显示与收起", "visibility"); return;
+            options.addView(SettingsUi.valueRow(this, "按钮顺序", prefs.scrollingActions().size() + " 个翻页按钮", () -> orderEditor("dock"))); note("每页包含 1 个固定按钮，其余按钮可滑动翻页。"); note("返回锁屏页面：回到三星时钟首页，不主动锁定手机。返回应用中心：需要 Shizuku，返回三星保留的原卡片页；如果已切到其他卡片，会返回那一页。"); related("快捷栏模式与收起", "visibility"); return;
         }
         LinearLayout preview = group("panel-preview-group"); Button toggle = SettingsUi.button(this, panelPreviewExpanded ? "收起布局预览" : "展开布局预览", () -> { panelPreviewExpanded = !panelPreviewExpanded; updatePanelPreview(); }); toggle.setTag("panel-preview-toggle"); preview.addView(toggle); panelPreviewHost = SettingsUi.column(this); preview.addView(panelPreviewHost); updatePanelPreview();
         LinearLayout layout = group("panel-layout-options");
@@ -534,16 +563,35 @@ public final class MainActivity extends Activity {
         note("通知仅在内存中处理；仅手动更新检查和下载使用网络，不上传通知、配置或设备信息。Shizuku 使用 MIT 许可，Material Symbols 与 AndroidX 使用 Apache 2.0 许可，许可原文随应用打包。"); related("问题诊断", "diagnostics");
     }
     private void diagnostics() {
-        begin("问题诊断", "diagnostics"); Display selected = Displays.selected(this, prefs); LinearLayout summary = group("diagnostic-summary"); summary.addView(SettingsUi.settingRow(this, R.drawable.ic_ms_info, "当前运行状态", CoverService.status, null)); summary.addView(SettingsUi.settingRow(this, R.drawable.ic_ms_phone_android, "目标外屏", displaySummary(), null));
+        begin("问题诊断", "diagnostics"); LinearLayout summary = group("diagnostic-summary");
+        SettingsUi.ValueRow status = new SettingsUi.ValueRow(this, R.drawable.ic_ms_info, "当前运行状态", CoverService.status, false, null), target = new SettingsUi.ValueRow(this, R.drawable.ic_ms_phone_android, "目标外屏", displaySummary(), false, null);
+        summary.addView(status); summary.addView(target);
+        TextView details = SettingsUi.text(this, "", 14, SettingsUi.MUTED); details.setTag("diagnostic-details"); details.setTextIsSelectable(true); details.setVisibility(View.GONE);
+        int[] generation = {0};
+        Runnable refresh = () -> { generation[0]++; diagnosticText = diagnosticReport(); status.value(CoverService.status); target.value(displaySummary()); details.setText(diagnosticText + CoverApp.launcher(this).diagnostics.report()); };
+        refresh.run();
+        LinearLayout actions = group("diagnostic-actions");
+        View reload = SettingsUi.settingRow(this, 0, "刷新日志", "重新采集当前状态与启动记录", () -> { refresh.run(); toast("日志已刷新"); }); reload.setTag("diagnostic-refresh"); actions.addView(reload);
+        View toggle = SettingsUi.settingRow(this, 0, "显示原始详情", "显示器、窗口与兼容信息", () -> details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)); toggle.setTag("diagnostic-toggle"); actions.addView(toggle);
+        View probe = SettingsUi.settingRow(this, 0, "通过 Shizuku 检测", "只读检测，不改变设备设置", null); probe.setTag("diagnostic-probe"); probe.setOnClickListener(v -> {
+            refresh.run(); int request = generation[0]; Display selected = Displays.selected(this, prefs); v.setEnabled(false);
+            CoverApp.bridge(this).run("diagnostics", selected == null ? -1 : selected.getDisplayId(), 0, "", result -> {
+                if (isDestroyed() || !v.isAttachedToWindow()) return;
+                v.setEnabled(true); if (request != generation[0]) return;
+                diagnosticText += "\n" + result.message + "\n" + result.output; details.setText(diagnosticText + CoverApp.launcher(this).diagnostics.report()); details.setVisibility(View.VISIBLE);
+            });
+        }); actions.addView(probe);
+        View copy = SettingsUi.settingRow(this, 0, "复制检测结果", "含本次运行的启动诊断，不含通知正文", () -> { String report = diagnosticText + CoverApp.launcher(this).diagnostics.report(); details.setText(report); getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("外屏检测", report)); toast("已复制"); }); copy.setTag("diagnostic-copy"); actions.addView(copy);
+        SettingsUi.add(body, details); related("兼容性说明", "launch_compatibility");
+    }
+    private String diagnosticReport() {
         StringBuilder report = new StringBuilder(getString(R.string.app_name)).append(' ').append(BuildConfig.VERSION_NAME).append(" / ").append(BuildConfig.VERSION_CODE).append("\nAndroid ").append(android.os.Build.VERSION.RELEASE).append(" / API ").append(android.os.Build.VERSION.SDK_INT).append("\n设备：").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append("\n系统版本：").append(android.os.Build.DISPLAY).append('\n');
+        report.append("采集时间：").append(android.text.format.DateFormat.format("yyyy-MM-dd HH:mm:ss", new java.util.Date())).append('\n');
         report.append("快捷栏状态：").append(CoverService.status).append("\n显示开关：").append(prefs.enabled()).append("\n系统报告锁屏：").append(getSystemService(android.app.KeyguardManager.class).isKeyguardLocked()).append('\n');
-        report.append("面板模糊开关：").append(prefs.panelBlur()).append("\n系统允许跨窗口模糊：").append(android.os.Build.VERSION.SDK_INT >= 31 && getSystemService(android.view.WindowManager.class).isCrossWindowBlurEnabled()).append("\n省电模式：").append(getSystemService(android.os.PowerManager.class).isPowerSaveMode()).append('\n');
+        report.append("面板模糊开关：").append(prefs.panelBlur()).append("\n系统允许跨窗口模糊：").append(android.os.Build.VERSION.SDK_INT >= 31 && getSystemService(android.view.WindowManager.class).isCrossWindowBlurEnabled()).append('\n').append(PowerDiagnostics.local(this));
         for (Display display : Displays.all(this)) report.append(Displays.describe(display)).append("\n物理模式：").append(display.getMode().getPhysicalWidth()).append('×').append(display.getMode().getPhysicalHeight()).append("\n状态：").append(display.getState()).append("\n缺口：").append(display.getCutout()).append('\n');
         CoverService service = CoverService.instance; if (service != null) { report.append(service.windowDiagnostics()).append(service.blurDiagnostics()); if (service.placement != null) report.append("可见区：").append(service.placement.visual()).append("\n触控区：").append(service.placement.touch()).append("\n缺口定位：").append(service.placement.measured()); } report.append(CoverService.lifecycleDiagnostics());
-        diagnosticText = report.toString(); TextView details = SettingsUi.text(this, diagnosticText + CoverApp.launcher(this).diagnostics.report(), 14, SettingsUi.MUTED); details.setTextIsSelectable(true); details.setVisibility(View.GONE);
-        LinearLayout actions = group("diagnostic-actions"); actions.addView(SettingsUi.settingRow(this, 0, "显示原始详情", "显示器、窗口与兼容信息", () -> details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE)));
-        View probe = SettingsUi.settingRow(this, 0, "通过 Shizuku 检测", "只读检测，不改变设备设置", null); probe.setOnClickListener(v -> { v.setEnabled(false); CoverApp.bridge(this).run("diagnostics", selected == null ? -1 : selected.getDisplayId(), 0, "", result -> { if (isDestroyed() || !v.isAttachedToWindow()) return; v.setEnabled(true); diagnosticText = report + "\n" + result.message + "\n" + result.output; details.setText(diagnosticText + CoverApp.launcher(this).diagnostics.report()); details.setVisibility(View.VISIBLE); }); }); actions.addView(probe);
-        actions.addView(SettingsUi.settingRow(this, 0, "复制检测结果", "含本次运行的启动诊断，不含通知正文", () -> { getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("外屏检测", diagnosticText + CoverApp.launcher(this).diagnostics.report())); toast("已复制"); })); SettingsUi.add(body, details); related("兼容性说明", "launch_compatibility");
+        return report.toString();
     }
     private void exportConfiguration() { open(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, "flip-cover-config.json"), 201); }
     private void importConfiguration() { open(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE), 202); }
@@ -593,7 +641,7 @@ public final class MainActivity extends Activity {
             update.putStringSet("dock_compact_apps", names);
         }
         update.putBoolean("input_enabled", config.optBoolean("inputEnabled", false));
-        update.putBoolean("dock_auto_hide", config.optBoolean("dockAutoHide", true)).putString("home_action", "cards");
+        update.putBoolean("dock_auto_hide", config.optBoolean("dockAutoHide", true)).putString("home_action", "cards").putBoolean("dock_expandable", false);
         if (favorites != null) update.putString("favorites", new JSONArray(savedFavorites).toString());
         update.putString("pinned_action", pinned).putBoolean("panel_blur", config.optBoolean("blur", true)).putString("dock", new JSONArray(parsed.get("dock")).toString()).putString("panel", new JSONArray(parsed.get("panel")).toString()).putInt("per_page", count).putInt("damping", damping);
         update.putBoolean("avoid_keyboard", config.optBoolean("avoidKeyboard", prefs.avoidKeyboard())).putBoolean("haptics", config.optBoolean("haptics", prefs.haptics()));

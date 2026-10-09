@@ -183,6 +183,7 @@ final class ConnectivityChecks {
     private void waitFor(Check check) throws Exception { long end = SystemClock.uptimeMillis() + 5000; do { test.waitForIdleSync(); if (check.get()) return; SystemClock.sleep(60); } while (SystemClock.uptimeMillis() < end); throw new AssertionError("Timed out awaiting connectivity state"); }
     private void require(boolean value, String reason) { if (!value) throw new AssertionError(reason); assertions++; }
     private static final class FakeService extends IShellService.Stub {
+        @Override public void watchSwitches(IConnectivityListener listener) { }
         volatile int nfc = 1, hotspot = 1, writes, nfcWrites, watchStops, band = 1, common, clientCount=1;
         volatile long timeout = 600000;
         volatile boolean clientsKnown = true, unknownRead;

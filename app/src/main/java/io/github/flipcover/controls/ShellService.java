@@ -17,8 +17,11 @@ public final class ShellService extends IShellService.Stub {
     private final SystemControlCenter systemControlCenter = new SystemControlCenter();
     private long lastWifiScan;
     private SystemConnectivity connectivity;
+    private SystemSwitches switches;
+    private SystemSwitches switches() { if (switches == null) switches = new SystemSwitches(); return switches; }
     private SystemConnectivity connectivity() { if (connectivity == null) connectivity = new SystemConnectivity(ownerContext); return connectivity; }
     @Override public synchronized void watchConnectivity(IConnectivityListener listener) { checkCaller(); connectivity().watch(listener); }
+    @Override public synchronized void watchSwitches(IConnectivityListener listener) { checkCaller(); switches().watch(listener); }
     public ShellService() { ownerUid = -1; ownerContext = null; }
     public ShellService(Context context) { ownerUid = context.getApplicationInfo().uid; ownerContext = context; }
     private void checkCaller() {
@@ -31,12 +34,12 @@ public final class ShellService extends IShellService.Stub {
                 case "rotation" -> rotation(displayId, value, false);
                 case "rotation_auto" -> rotation(displayId, 0, true);
                 case "brightness", "brightness_read" -> brightness(displayId, value, operation.equals("brightness"));
-                case "states" -> states();
+                case "states" -> states(displayId);
                 case "system_controls" -> systemControls(value);
                 case "location" -> location(displayId, value);
                 case "wifi_details" -> wifiDetails(value);
                 case "connectivity_states", "nfc_details", "hotspot_details", "nfc", "hotspot", "nfc_secure", "hotspot_config" -> connectivity().execute(operation, displayId, value, component);
-                case "wifi", "bluetooth", "data", "airplane", "dnd" -> switchSetting(operation, value);
+                case "wifi", "bluetooth", "data", "airplane", "dnd" -> switchSetting(operation, displayId, value);
                 case "tile_add", "tile_click" -> tile(operation, component);
                 case "diagnostics" -> diagnostics(displayId);
                 case "recent_tasks", "recent_clear", "recent_dismiss" -> recentTasks(displayId, component, !operation.equals("recent_tasks"), operation.equals("recent_dismiss"));
@@ -113,19 +116,18 @@ public final class ShellService extends IShellService.Stub {
         android.view.Display target = ownerContext.getSystemService(android.hardware.display.DisplayManager.class).getDisplay(id);
         if (target == null || !target.isValid() || target.getState() != android.view.Display.STATE_ON || ownerContext.getSystemService(android.app.KeyguardManager.class).isKeyguardLocked()) throw new IllegalStateException("目标外屏已改变、息屏或锁定");
     }
-    private String states() throws Exception {
+    private String states(int display) throws Exception {
         JSONObject values = new JSONObject();
-        String[][] pairs = {{"wifi", "wifi_on"}, {"bluetooth", "bluetooth_on"}, {"airplane", "airplane_mode_on"}, {"dnd", "zen_mode"}};
-        // A generic mobile_data value can refer to the wrong SIM; keep it unknown.
-        values.put("data", -1);
-        for (String[] pair : pairs) {
-            Output read = run("settings", "get", "global", pair[1]);
-            String value = read.text.trim();
-            values.put(pair[0], read.ok() && value.matches("[0-3]") ? Integer.parseInt(value) : -1);
-        }
+        for (String id : SystemSwitches.IDS) values.put(id, switches().state(id));
+        values.put("rotation_mode", -1);
+        if (display > 0) { Output read = run("cmd", "window", "user-rotation", "-d", String.valueOf(display)); values.put("rotation_mode", CoverRotation.systemMode(read.ok(), read.text)); }
         values.put("system_controls", systemControlsState());
         values.put("nfc", connectivity().state("nfc")).put("hotspot", connectivity().state("hotspot"));
         return reply(true, "已读取系统状态", values.toString());
+    }
+    static int airplaneState() throws Exception {
+        Output read = run("settings", "get", "global", "airplane_mode_on");
+        return !read.ok() ? -1 : read.text.trim().equals("1") ? 1 : read.text.trim().equals("0") ? 0 : -1;
     }
     private int systemControlsState() throws Exception {
         Output read = run("dumpsys", "statusbar");
@@ -170,17 +172,27 @@ public final class ShellService extends IShellService.Stub {
         });
         return reply(result.ok(), result.message(), String.valueOf(result.state()));
     }
-    private String switchSetting(String operation, int value) throws Exception {
-        if (value != 0 && value != 1) throw new IllegalArgumentException("Expected 0 or 1");
-        String verb = value == 1 ? "enable" : "disable";
-        Output output = switch (operation) {
-            case "wifi", "data" -> run("svc", operation, verb);
-            case "bluetooth" -> run("cmd", "bluetooth_manager", verb);
-            case "airplane" -> run("cmd", "connectivity", "airplane-mode", verb);
-            case "dnd" -> run("cmd", "notification", "set_dnd", value == 1 ? "priority" : "all");
-            default -> throw new IllegalArgumentException("Unknown setting");
-        };
-        return reply(output.ok(), output.ok() ? "请求已提交，请以刷新后的系统状态为准" : "系统开关操作失败", output.text);
+    private String switchSetting(String operation, int display, int value) throws Exception {
+        int subscription = operation.equals("data") ? switches().dataSubscription() : -1;
+        SystemSwitches.Result result = SystemSwitches.change(value, new SystemSwitches.Access() {
+            @Override public boolean valid() {
+                try { activeSecondaryDisplay(display); return !operation.equals("data") || subscription >= 0 && subscription == switches().dataSubscription(); }
+                catch (Exception error) { return false; }
+            }
+            @Override public int read() throws Exception { return switches().state(operation, subscription); }
+            @Override public boolean write(boolean enabled) throws Exception {
+                if (operation.equals("data")) { switches().dataEnabled(subscription, enabled); return true; }
+                String verb = enabled ? "enable" : "disable";
+                return switch (operation) {
+                    case "wifi" -> run("svc", "wifi", verb).ok();
+                    case "bluetooth" -> run("cmd", "bluetooth_manager", verb).ok();
+                    case "airplane" -> run("cmd", "connectivity", "airplane-mode", verb).ok();
+                    case "dnd" -> run("cmd", "notification", "set_dnd", enabled ? "priority" : "all").ok();
+                    default -> false;
+                };
+            }
+        });
+        return reply(result.ok(), result.message(), String.valueOf(result.state()));
     }
     private String tile(String operation, String encoded) throws Exception {
         ComponentName name = ComponentName.unflattenFromString(encoded);
@@ -215,18 +227,22 @@ public final class ShellService extends IShellService.Stub {
         Output help = run("cmd", "statusbar", "help");
         report.append("系统磁贴 add-tile：").append(help.text.contains("add-tile")).append('\n');
         report.append("系统磁贴 click-tile：").append(help.text.contains("click-tile")).append('\n');
+        Output power = run(262144, "dumpsys", "power");
+        if (power.ok()) report.append(PowerDiagnostics.system(power.text));
+        else report.append("电源服务省电状态：读取失败（退出码 ").append(power.code).append("）\n");
         return reply(true, "只读检测完成", report.toString());
     }
     private static void secondary(int id) { if (id <= 0) throw new IllegalArgumentException("A secondary display is required"); }
     private record Output(int code, String text) { boolean ok() { return code == 0 && !text.contains("Exception") && !text.contains("Error:"); } }
-    private static Output run(String... arguments) throws Exception {
+    private static Output run(String... arguments) throws Exception { return run(16384, arguments); }
+    private static Output run(int limit, String... arguments) throws Exception {
         Process process = new ProcessBuilder(arguments).redirectErrorStream(true).start();
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         Thread reader = new Thread(() -> {
             try (InputStream stream = process.getInputStream()) {
                 byte[] buffer = new byte[1024]; int count;
                 while ((count = stream.read(buffer)) != -1) {
-                    synchronized (bytes) { if (bytes.size() < 16384) bytes.write(buffer, 0, Math.min(count, 16384 - bytes.size())); }
+                    synchronized (bytes) { if (bytes.size() < limit) bytes.write(buffer, 0, Math.min(count, limit - bytes.size())); }
                 }
             } catch (Exception ignored) { }
         }, "shell-output");

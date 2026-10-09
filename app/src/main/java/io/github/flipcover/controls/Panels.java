@@ -50,11 +50,13 @@ final class Panels {
         final TextView unknown;
         final boolean compact;
         final String actionName;
+        final boolean stateful;
         private Boolean actual;
+        private String stateLabel;
         private boolean working;
         Tile(String id, Runnable action) { this(id, action, false); }
         Tile(String id, Runnable action, boolean compact) {
-            super(context); this.compact = compact; actionName = ActionCatalog.label(context, id); setOrientation(VERTICAL); setGravity(Gravity.CENTER);
+            super(context); this.compact = compact; actionName = ActionCatalog.label(context, id); stateful = ActionCatalog.showsState(id); setOrientation(VERTICAL); setGravity(Gravity.CENTER);
             setMinimumHeight(Ui.dp(context, compact ? 50 : 54));
             setPadding(Ui.dp(context, compact ? 1 : 5), Ui.dp(context, compact ? 0 : 5), Ui.dp(context, compact ? 1 : 5), Ui.dp(context, compact ? 0 : 10));
             face = new FrameLayout(context); face.setDuplicateParentStateEnabled(true);
@@ -71,21 +73,27 @@ final class Panels {
             setFocusable(!preview); setOnClickListener(v -> { if (!preview) action.run(); }); icon.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); unknown.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             setContentDescription(actionName);
         }
-        void state(Boolean value) {
-            actual = value;
-            boolean active = Boolean.TRUE.equals(value); setSelected(active);
+        void state(Boolean value) { state(value, null); }
+        void state(Boolean value, String description) { actual = value; stateLabel = description; renderState(); }
+        private void renderState() {
+            boolean active = stateful && Boolean.TRUE.equals(actual); setSelected(active);
             if (!compact) setBackground(Ui.ripple(context, active ? Ui.ACTIVE : Ui.SURFACE, 20));
             icon.setColorFilter(active ? Ui.ON_ACTIVE : Ui.TEXT);
-            label.setTextColor(compact || !active ? Ui.TEXT : Ui.ON_ACTIVE); unknown.setText(working ? "…" : "?"); unknown.setVisibility(compact && (working || value == null) ? VISIBLE : GONE);
-            detail.setTextColor(active ? Ui.ON_ACTIVE : Ui.MUTED); detail.setText(value == null ? "状态未知" : active ? "已开启" : "已关闭");
-            setContentDescription(actionName + "，" + (working ? "正在执行" : detail.getText())); setStateDescription(working ? "正在执行" : detail.getText());
+            label.setTextColor(compact || !active ? Ui.TEXT : Ui.ON_ACTIVE); unknown.setText(working ? "…" : "?"); unknown.setVisibility(compact && (working || stateful && actual == null) ? VISIBLE : GONE);
+            detail.setTextColor(active ? Ui.ON_ACTIVE : Ui.MUTED); detail.setText(stateLabel != null ? stateLabel : !stateful ? "" : actual == null ? "状态未知" : active ? "已开启" : "已关闭");
+            setContentDescription(actionName + (working ? "，正在执行" : detail.length() == 0 ? "" : "，" + detail.getText())); setStateDescription(working ? "正在执行" : detail.length() == 0 ? null : detail.getText());
         }
-        void working(boolean value) { working = value; setActivated(value); setEnabled(!value); state(actual); }
+        void working(boolean value) { working = value; setActivated(value); setEnabled(!value); renderState(); }
     }
     boolean working(String id) { Tile tile = buttons.get(id); return tile != null && tile.working; }
     void working(String id, boolean value) { Tile tile = buttons.get(id); if (tile != null) tile.working(value); }
     private void controls() {
         List<String> actions = owner.prefs.actions("panel");
+        if (!preview && actions.stream().anyMatch(SystemSwitches.IDS::contains)) body.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            final Runnable changed = () -> { if (body.isAttachedToWindow()) owner.controlStatesChanged(); };
+            @Override public void onViewAttachedToWindow(View view) { CoverApp.bridge(context).addSwitchObserver(changed); changed.run(); }
+            @Override public void onViewDetachedFromWindow(View view) { CoverApp.bridge(context).removeSwitchObserver(changed); }
+        });
         if (!preview && actions.contains("location")) body.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             private SystemLocation location;
             @Override public void onViewAttachedToWindow(View view) { location = new SystemLocation(context, owner::refreshLocationState); }
@@ -225,9 +233,9 @@ final class Panels {
         for (Map.Entry<String, Tile> entry : buttons.entrySet()) {
             String id = entry.getKey();
             if (preview) { entry.getValue().state(null); continue; }
-            if (List.of("wifi", "bluetooth", "data", "location", "torch", "dnd", "airplane", "system_controls", "nfc", "hotspot").contains(id)) entry.getValue().state(owner.on(id));
+            if (ActionCatalog.showsState(id) && !id.equals("rotation")) entry.getValue().state(owner.on(id));
             if (id.equals("system_controls")) { Boolean state = owner.on(id); entry.getValue().icon.setImageDrawable(Ui.icon(context, Boolean.FALSE.equals(state) ? R.drawable.ic_ms_toggle_off : R.drawable.ic_ms_toggle_on, Boolean.TRUE.equals(state) ? Ui.ON_ACTIVE : Ui.TEXT)); }
-            if (id.equals("rotation")) { entry.getValue().state(owner.rotationAutomatic()); entry.getValue().label.setText(owner.rotationAutomatic() ? "自动旋转" : "旋转锁定"); }
+            if (id.equals("rotation")) { entry.getValue().state(owner.rotationTileState(), owner.rotationLabel()); entry.getValue().label.setText(owner.rotationLabel()); }
         }
     }
     void brightness(ShizukuBridge.Result result) {
@@ -276,7 +284,7 @@ final class Panels {
             }
             Ui.add(body, row);
         }
-        Ui.add(body, Ui.button(context, "交回系统旋转控制", () -> { owner.stopAutomaticRotation(); owner.shell("rotation_auto", 0, "", null); }));
+        Ui.add(body, Ui.button(context, "交回系统旋转控制", owner::releaseRotation));
         Ui.add(body, Ui.text(context, "以系统方向为准。请关闭其他工具的自动旋转，避免互相覆盖。", 11, Ui.MUTED));
     }
     private void notifications() {

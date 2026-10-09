@@ -21,7 +21,8 @@ final class PanelEntryView extends View {
     private final boolean gesturesEnabled;
     private final int slop;
     private final int edge;
-    private final int artworkTopInset;
+    private int artworkTopInset;
+    private boolean preserveHandlesOnResize;
     private float startX, startY, distance;
     private String page;
     private boolean pending, pulling, panelOpen, revealed;
@@ -35,11 +36,18 @@ final class PanelEntryView extends View {
     PanelEntryView(Context context, Prefs prefs, DockGeometry.Placement placement, DockView.Listener listener) {
         super(context); this.listener = listener; this.prefs = prefs;
         edge = placement.edge(); artworkTopInset = placement.visual().y() - placement.touch().y(); chrome = DockGeometry.panelEntryChrome(placement, getResources().getDisplayMetrics().density);
-        hold = () -> { if (pending && getAlpha() > 0) { revealHandles(); reset(); performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); listener.toggleVisibility(); settleHandles(); } };
+        hold = () -> { if (pending && getAlpha() > 0) { revealHandles(); reset(); performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); listener.toggleMode(); settleHandles(); } };
         gesturesEnabled = prefs.gesturesEnabled(); slop = ViewConfiguration.get(context).getScaledTouchSlop();
         setLayerType(LAYER_TYPE_SOFTWARE, null); setHapticFeedbackEnabled(prefs.haptics()); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         setAlpha(0);
-        setContentDescription("双白条入口：左条打开通知，右条打开控制中心；" + (edge == DockGeometry.TOP ? "向下滑入" : "向上滑入") + "；白条可见时长按显示或隐藏快捷按钮");
+        setContentDescription("双白条入口：左条打开通知，右条打开控制中心；" + (edge == DockGeometry.TOP ? "向下滑入" : "向上滑入") + "；白条可见时长按切换常驻／收起展开模式"); modeChanged();
+    }
+    void modeChanged() { setStateDescription(prefs.dockExpandable() ? "收起展开模式" : "常驻模式"); }
+    void placement(DockGeometry.Placement value) {
+        int top = value.visual().y() - value.touch().y();
+        DockGeometry.Chrome next = DockGeometry.panelEntryChrome(value, getResources().getDisplayMetrics().density);
+        reset(); preserveHandlesOnResize = getWidth() != value.touch().width() || getHeight() != value.touch().height();
+        artworkTopInset = top; chrome = next; invalidate();
     }
     @Override protected void onDraw(Canvas canvas) {
         paint.setColor(Ui.chromeColor(prefs)); paint.setAlpha(230);
@@ -109,7 +117,9 @@ final class PanelEntryView extends View {
     private void dimHandles() { animate().cancel(); if (android.animation.ValueAnimator.areAnimatorsEnabled()) animate().alpha(.5f).setDuration(BuildConfig.MOTION_HANDLES_FADE_IN_MS).start(); else setAlpha(.5f); }
     private void hideImmediately() { removeCallbacks(hideHandles); animate().cancel(); setAlpha(0); revealed = false; }
     @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh); cancel(); if (!panelOpen) hideImmediately();
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (preserveHandlesOnResize) { preserveHandlesOnResize = false; reset(); }
+        else { cancel(); if (!panelOpen) hideImmediately(); }
         int top = Math.min(artworkTopInset, Math.max(0, h - 1));
         DockGeometry.Box box = new DockGeometry.Box(0, 0, w, h), visual = new DockGeometry.Box(0, top, w, h - top);
         chrome = DockGeometry.panelEntryChrome(new DockGeometry.Placement(visual, box, box, edge, true), getResources().getDisplayMetrics().density);
@@ -132,12 +142,12 @@ final class PanelEntryView extends View {
         super.onInitializeAccessibilityNodeInfo(info);
         info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.open_notifications, "打开通知中心"));
         info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.open_controls, "打开控制中心"));
-        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_dock, "显示或隐藏快捷按钮"));
+        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_dock, prefs.dockExpandable() ? "切换为常驻模式" : "切换为收起展开模式"));
     }
     @Override public boolean performAccessibilityAction(int action, Bundle args) {
         if (action == R.id.open_notifications) { listener.action("notification_list"); return true; }
         if (action == R.id.open_controls) { listener.action("controls"); return true; }
-        if (action == R.id.toggle_dock) { listener.toggleVisibility(); return true; }
+        if (action == R.id.toggle_dock) { listener.toggleMode(); return true; }
         return super.performAccessibilityAction(action, args);
     }
 }

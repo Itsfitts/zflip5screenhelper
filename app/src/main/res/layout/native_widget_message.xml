@@ -5,4 +5,6 @@
         android:gravity="center" android:text="@string/native_widget_setup" android:textColor="#FFFFFFFF" android:textSize="18sp" />
     <TextView android:id="@+id/native_widget_detail" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="12dp" android:gravity="center" android:text="@string/native_widget_help" android:textColor="#FFBBC0CA" android:textSize="12sp" />
+    <TextView android:id="@+id/native_widget_setup_hint" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:gravity="center" android:text="@string/native_widget_setup_hint" android:textColor="#FF969DA8" android:textSize="10sp" />
 </LinearLayout>

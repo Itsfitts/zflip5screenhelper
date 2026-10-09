@@ -2,34 +2,37 @@ package io.github.flipcover.controls;
 
 import java.util.Set;
 
-/** Manual choice lasts for the current foreground app, including all of its pages. */
+/** Saved mode is supplied by Prefs; arrow expansion belongs to the current screen session. */
 final class DockVisibility {
+    private boolean expandable, expanded;
+    private boolean clock, clockExpanded;
     private String foreground = "";
-    private Boolean manual;
     private boolean keyboard;
-    private Boolean keyboardManual;
     private Set<String> matchedApplications;
     private String matchedForeground;
     private boolean automaticCompact;
     void foreground(String packageName) {
-        if (packageName == null || packageName.isEmpty() || packageName.equals(foreground)) return;
-        foreground = packageName; manual = null; keyboardManual = null;
+        String next = packageName == null ? "" : packageName;
+        if (next.equals(foreground)) return;
+        foreground = next;
     }
-    void keyboard(boolean visible) { if (keyboard != visible) { keyboard = visible; keyboardManual = null; } }
-    boolean needsForeground() { return manual != null || keyboardManual != null; }
+    void keyboard(boolean visible) { keyboard = visible; }
+    void expandable(boolean value) { if (expandable != value) { expandable = value; expanded = false; clockExpanded = false; } }
+    boolean expandable() { return expandable; }
+    void clock(boolean value) { if (clock != value) clockExpanded = false; clock = value; }
     void rulesChanged() { matchedApplications = null; matchedForeground = null; }
-    void clearManual() { manual = null; keyboardManual = null; }
     /** Application rules are an immutable configuration snapshot, replaced on changes. */
     boolean compact(boolean automatic, Set<String> compactApps) {
-        if (keyboard) return keyboardManual == null || keyboardManual;
-        if (manual != null) return manual;
-        return automaticallyCompact(automatic, compactApps);
+        if (clock) return expandable ? !expanded : !clockExpanded;
+        if (automaticallyCompact(automatic, compactApps)) return true;
+        if (expandable) return !expanded;
+        return keyboard;
     }
     boolean automaticallyCompact(boolean automatic, Set<String> compactApps) {
-        if (!automatic || compactApps.isEmpty()) return false;
+        if (clock || !automatic || compactApps.isEmpty()) return false;
         if (matchedApplications != compactApps || matchedForeground != foreground) {
             matchedApplications = compactApps; matchedForeground = foreground;
-            automaticCompact = foreground.isEmpty() || compactApps.contains(foreground);
+            automaticCompact = !foreground.isEmpty() && compactApps.contains(foreground);
         }
         return automaticCompact;
     }
@@ -38,6 +41,6 @@ final class DockVisibility {
         if (!active || title == null || "SubLauncherWindow".contentEquals(title)) return false;
         return "com.android.systemui".equals(packageName) || packageName == null && systemUiTitle != null && systemUiTitle.toString().contentEquals(title);
     }
-    void toggle(boolean automatic, Set<String> compactApps) { boolean next = !compact(automatic, compactApps); if (keyboard) keyboardManual = next; else manual = next; }
-    void reset() { foreground = ""; manual = null; keyboard = false; keyboardManual = null; rulesChanged(); }
+    void toggle(boolean automatic, Set<String> compactApps) { if (clock && !expandable) clockExpanded = !clockExpanded; else if (expandable && !automaticallyCompact(automatic, compactApps)) expanded = !expanded; }
+    void reset() { foreground = ""; keyboard = false; expanded = false; clock = false; clockExpanded = false; rulesChanged(); }
 }

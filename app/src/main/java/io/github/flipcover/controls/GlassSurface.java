@@ -249,7 +249,7 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
     @Override public void setAlpha(int alpha) { opacity=alpha; invalidateSelf(); }
     private int fallbackColor() {
         if (role == Role.FOLDER && owner.getParent() instanceof AppFolderTile folder) return folder.color();
-        return selected && role == Role.PICKER ? SettingsUi.ACTIVE : selected && (role == Role.BUTTON || role == Role.TILE) ? Ui.ACTIVE : role == Role.NOTIFICATION_PAGE ? 0x3D000000 : role == Role.CONTROL_PAGE ? 0xEB111820 : launcherPlate() ? 0xEB22272F : 0xEE293340;
+        return selected && role == Role.PICKER ? SettingsUi.ACTIVE : selected && (role == Role.BUTTON || role == Role.TILE) ? Ui.ACTIVE : page() ? Ui.BACKGROUND : launcherPlate() ? 0xEB22272F : 0xEE293340;
     }
     @Override public void setColorFilter(ColorFilter filter) { paint.setColorFilter(filter); invalidateSelf(); }
     @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }

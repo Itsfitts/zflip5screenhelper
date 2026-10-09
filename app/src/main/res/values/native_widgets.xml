@@ -8,4 +8,5 @@
     <string name="native_widget_description">4×4自由布局，可放多个桌面小组件。按应用选择预览与尺寸。</string>
     <string name="native_widget_setup">布置这张卡片</string>
     <string name="native_widget_help">点按添加组件 · 4×4自由布局</string>
+    <string name="native_widget_setup_hint">(也可以在设置里面布置)</string>
 </resources>

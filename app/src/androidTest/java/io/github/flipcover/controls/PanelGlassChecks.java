@@ -265,7 +265,7 @@ final class PanelGlassChecks {
     }
     String runCaptureChecks() {
         activity=test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        try { checkCardCaptureAreas(); checkRequests(); checkScaledBackdrop(); return "PASS: "+assertions+" glass capture/scale assertions; rotation-aware card coverage, hardware texture mapping and lifecycle on disposable emulator"; }
+        try { checkOpaqueFallback(null); checkCardCaptureAreas(); checkRequests(); checkScaledBackdrop(); return "PASS: "+assertions+" glass capture/scale assertions; opaque fallback, rotation-aware card coverage, hardware texture mapping and lifecycle on disposable emulator"; }
         finally { main(activity::finish); }
     }
     String runOriginalTabs() throws Exception {
@@ -743,6 +743,33 @@ final class PanelGlassChecks {
             }
         } finally { prefs.data.edit().putBoolean("panel_blur",effects).commit(); }
     }
+    private void checkOpaqueFallback(PanelGlassSession failed) {
+        main(() -> {
+            for (InterfaceCard.Definition definition:List.of(InterfaceCard.CONTROLS,InterfaceCard.NOTIFICATIONS,InterfaceCard.LAUNCHER,InterfaceCard.TASKS)) {
+                InterfaceCard card=new InterfaceCard(activity,new Prefs(activity),definition,new FrameLayout(activity),() -> { },() -> { });
+                Bitmap pixels=Bitmap.createBitmap(320,320,Bitmap.Config.ARGB_8888); Canvas canvas=new Canvas(pixels);
+                try {
+                    card.layout(0,0,320,320);
+                    if (failed!=null) failed.attach(card,false);
+                    for (int underneath:new int[]{Color.MAGENTA,Color.GREEN}) {
+                        canvas.drawColor(underneath); card.getBackground().setBounds(0,0,320,320); card.getBackground().draw(canvas);
+                        for (int y:new int[]{80,160,240}) require(pixels.getPixel(160,y)==Ui.BACKGROUND,"opaque "+definition.id()+" fallback hides underlying content: "+(failed==null ? "no-session" : failed.state));
+                    }
+                    if (failed!=null) failed.clearViews();
+                    PanelGlassSession loaded=null;
+                    if (failed==null) {
+                        loaded=new PanelGlassSession(activity,activity.getDisplay()); loaded.fixture(Bitmap.createBitmap(320,320,Bitmap.Config.ARGB_8888)); card.glass(loaded);
+                        require(loaded.ready() && loaded.bytes()>0 && card.glass()==loaded,"card owns a prepared background before memory fallback");
+                    }
+                    card.dropGlass(); canvas.drawColor(Color.MAGENTA); card.getBackground().setBounds(0,0,320,320); card.getBackground().draw(canvas);
+                    require(pixels.getPixel(160,160)==Ui.BACKGROUND,"base "+definition.id()+" fallback remains opaque after dropGlass");
+                    if (loaded!=null) require(!loaded.ready() && loaded.bytes()==0 && card.glass()==null,"memory fallback releases owned background and keeps opaque plate");
+                    card.plateVisible(false); canvas.drawColor(Color.GREEN); card.getBackground().setBounds(0,0,320,320); card.getBackground().draw(canvas);
+                    require(pixels.getPixel(160,160)==Color.GREEN,"explicitly hidden full-screen plate stays hidden");
+                } finally { if (failed!=null) failed.clearViews(); card.release(); pixels.recycle(); }
+            }
+        });
+    }
     private void checkRequests() {
         VirtualDisplay display=activity.getSystemService(DisplayManager.class).createVirtualDisplay("glass-request-check",320,240,160,null,DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
         require(display!=null,"isolated test display");
@@ -750,6 +777,7 @@ final class PanelGlassChecks {
             Probe service=new Probe(activity); int[] finished={0}; PanelGlassSession[] request={null};
             main(() -> { request[0]=new PanelGlassSession(activity,display.getDisplay()); request[0].capture(service,() -> true,() -> finished[0]++); }); SystemClock.sleep(250); idle();
             require(service.calls==1 && finished[0]==1 && !request[0].ready() && request[0].state.equals("timeout"),"one request times out once: "+service.calls+"/"+finished[0]+"/"+request[0].state);
+            checkOpaqueFallback(request[0]);
             main(() -> service.callback.onFailure(AccessibilityService.ERROR_TAKE_SCREENSHOT_SECURE_WINDOW)); require(finished[0]==1,"late failure cannot complete twice"); main(request[0]::close);
             android.hardware.HardwareBuffer late=android.hardware.HardwareBuffer.create(320,240,android.hardware.HardwareBuffer.RGBA_8888,1,android.hardware.HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE | android.hardware.HardwareBuffer.USAGE_GPU_COLOR_OUTPUT);
             main(() -> request[0].receive(late,android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB),320,240)); require(late.isClosed() && request[0].bytes()==0,"late successful callback closes native buffer without adoption");
@@ -766,12 +794,13 @@ final class PanelGlassChecks {
                 }); idle();
                 boolean uniform=size[0]*240==size[1]*320;
                 require(scaled.isClosed() && request[0].ready()==uniform && request[0].preparations==(uniform ? 1 : 0),"window scale accepted but cropped frame rejected: "+size[0]+"x"+size[1]+" / "+request[0].state);
+                if (!uniform) checkOpaqueFallback(request[0]);
                 require(request[0].diagnostics().contains(size[0]+"×"+size[1]+" → 显示区域 320×240"),"diagnostics distinguish captured pixels from display geometry"); main(request[0]::close);
             }
             main(() -> { request[0]=new PanelGlassSession(activity,display.getDisplay()); request[0].capture(service,() -> true,() -> finished[0]++); request[0].close(); service.callback.onFailure(AccessibilityService.ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY); });
             require(finished[0]==1 && request[0].bytes()==0,"close cancels completion and retained data");
             main(() -> { request[0]=new PanelGlassSession(activity,display.getDisplay()); request[0].capture(service,() -> true,() -> finished[0]++); service.callback.onFailure(AccessibilityService.ERROR_TAKE_SCREENSHOT_SECURE_WINDOW); });
-            require(request[0].state.startsWith("capture-") && !request[0].ready(),"protected content has explicit fallback"); main(request[0]::close);
+            require(request[0].state.startsWith("capture-") && !request[0].ready(),"protected content has explicit fallback"); checkOpaqueFallback(request[0]); main(request[0]::close);
             android.hardware.HardwareBuffer obsolete=android.hardware.HardwareBuffer.create(320,240,android.hardware.HardwareBuffer.RGBA_8888,1,android.hardware.HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE | android.hardware.HardwareBuffer.USAGE_GPU_COLOR_OUTPUT);
             int[] sourceFinished={0};
             main(() -> {
@@ -780,7 +809,7 @@ final class PanelGlassChecks {
                 request[0].receive(obsolete,android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB),320,240);
                 request[0].capture(service,() -> true,() -> { throw new AssertionError("invalid source recaptured"); });
             }); idle();
-            require(obsolete.isClosed() && sourceFinished[0]==1 && request[0].captures==1 && request[0].preparations==0 && request[0].bytes()==0 && request[0].state.equals("source-changed"),"source lost during preparation finishes once, releases late buffers and never retries"); main(request[0]::close);
+            require(obsolete.isClosed() && sourceFinished[0]==1 && request[0].captures==1 && request[0].preparations==0 && request[0].bytes()==0 && request[0].state.equals("source-changed"),"source lost during preparation finishes once, releases late buffers and never retries"); checkOpaqueFallback(request[0]); main(request[0]::close);
             int calls=service.calls;
             main(() -> { request[0]=new PanelGlassSession(activity,activity.getDisplay()); request[0].capture(service,() -> true,() -> finished[0]++); });
             require(service.calls==calls && request[0].state.equals("unsupported"),"never capture default display"); main(request[0]::close);

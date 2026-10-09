@@ -4,6 +4,14 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CoverRotationTest {
+    @Test public void systemOwnershipIsNotReportedAsALock() {
+        assertEquals(0, CoverRotation.systemMode(true, "free\n"));
+        for (int angle = 0; angle < 4; angle++) assertEquals(1, CoverRotation.systemMode(true, "lock " + angle));
+        for (String text : new String[]{null, "", "lock 4", "free\nError:", "unknown"}) assertEquals(-1, CoverRotation.systemMode(true, text));
+        assertEquals(-1, CoverRotation.systemMode(false, "lock 0"));
+        assertEquals("系统旋转", CoverRotation.label(false, 0)); assertEquals("旋转锁定", CoverRotation.label(false, 1));
+        assertEquals("旋转状态未知", CoverRotation.label(false, -1)); assertEquals("工具自动旋转", CoverRotation.label(true, -1));
+    }
     @Test public void calibratedOrientationSupportsEveryMountAndWraparound() {
         for (int rotation = 0; rotation < 4; rotation++) {
             assertEquals(rotation, CoverRotation.target(350, 350, rotation));

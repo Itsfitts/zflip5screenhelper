@@ -5,5 +5,6 @@ interface IShellService {
     String execute(String operation, int displayId, int value, String component) = 1;
     Bundle taskSnapshot(int displayId, String task) = 2;
     void watchConnectivity(IConnectivityListener listener) = 3;
+    void watchSwitches(IConnectivityListener listener) = 4;
     void destroy() = 16777114;
 }
