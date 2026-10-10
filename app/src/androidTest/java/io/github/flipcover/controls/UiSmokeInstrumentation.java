@@ -40,6 +40,8 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("app-launch-reuse")) { result.putString("result", new AppLaunchChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("lock-wake")) { result.putString("result", new LockWakeChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("clock-dock")) { result.putString("result", new ClockDockChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("dock-auto-return")) { result.putString("result", new DockAutoReturnChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("clock-card-exit")) { result.putString("result", new ClockDockChecks(this).runCardExit()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("shortcut-apps")) { if (expectedRotation >= 0) { require(getUiAutomation().setRotation(expectedRotation), "shortcut application settings rotation accepted"); SystemClock.sleep(500); waitForIdleSync(); } result.putString("result", new SettingsVisibilityChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("status-apps")) { if (expectedRotation >= 0) require(getUiAutomation().setRotation(expectedRotation), "status application settings rotation accepted"); result.putString("result", new StatusAppChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("six-key")) { result.putString("result", new SixKeyChecks(this, expectedRotation).run()); finish(Activity.RESULT_OK, result); return; }
@@ -86,6 +88,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("configuration")) { result.putString("result", new ConfigurationChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("app-config")) { result.putString("result", new AppConfigChecks().run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("control-rotation")) { result.putString("result", ControlRotationChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("rotation-reverse")) { result.putString("result", RotationReverseChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-geometry")) { result.putString("result", new RuntimeGeometryChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-safe-area")) { result.putString("result", RuntimeSafeAreaChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-feedback")) { result.putString("result", new RuntimeFeedbackChecks(this).run()); finish(Activity.RESULT_OK, result); return; }

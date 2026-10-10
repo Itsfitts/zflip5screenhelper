@@ -66,7 +66,8 @@ final class SettingsApplications extends LinearLayout implements AppCatalogCache
         if (!mode.equals("picker")) {
             Set<String> packages = new java.util.LinkedHashSet<>();
             // These system hosts have no launcher entry; unchecked rules must remain selectable.
-            if (mode.equals("visibility") || mode.equals("status")) packages.addAll(Set.of("com.android.systemui", "com.sec.android.app.launcher"));
+            if (mode.equals("status")) packages.add("com.android.systemui");
+            if (mode.equals("visibility") || mode.equals("status")) packages.add("com.sec.android.app.launcher");
             if (mode.equals("visibility")) packages.addAll(prefs.compactApps());
             else if (mode.equals("status")) packages.addAll(prefs.statusHiddenApps());
             else { java.util.Iterator<String> keys = prefs.rotationRules().keys(); while (keys.hasNext()) packages.add(keys.next()); }
@@ -75,9 +76,10 @@ final class SettingsApplications extends LinearLayout implements AppCatalogCache
                 all.put(name, new AppCatalogCache.Entry("", label, name, label.toLowerCase(Locale.ROOT)));
             }
         }
+        if (mode.equals("visibility")) all.remove("com.android.systemui");
         items.clear(); String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
         for (AppCatalogCache.Entry entry : all.values()) if ((entry.searchKey() + entry.packageName()).contains(query)) items.add(entry);
-        String message = !catalog.ready() ? catalog.failed() ? "读取失败，点此重试" : "正在读取应用…" : items.isEmpty() ? query.isEmpty() ? "当前没有可选应用" : "没有找到应用" : mode.equals("orientations") ? "选择应用设置方向 · " + items.size() + " 个" : mode.equals("visibility") ? "所选应用隐藏快捷栏和箭头；时钟首页保留箭头，双白条保留" : mode.equals("status") ? "进入选中应用时隐藏外屏常驻状态栏，离开后恢复；控制中心状态行保留" : "选择应用 · " + items.size() + " 个";
+        String message = !catalog.ready() ? catalog.failed() ? "读取失败，点此重试" : "正在读取应用…" : items.isEmpty() ? query.isEmpty() ? "当前没有可选应用" : "没有找到应用" : mode.equals("orientations") ? "选择应用设置方向 · " + items.size() + " 个" : mode.equals("visibility") ? "所选应用隐藏快捷栏和箭头；首页按首页规则开关处理，双白条保留" : mode.equals("status") ? "进入选中应用时隐藏外屏常驻状态栏，离开后恢复；控制中心状态行保留" : "选择应用 · " + items.size() + " 个";
         if (!message.contentEquals(status.getText())) status.setText(message); status.setOnClickListener(catalog.failed() ? v -> catalog.warm() : null);
         adapter.notifyDataSetChanged();
         if (!restored && catalog.ready()) { restored = true; android.os.Parcelable position = saved.getParcelable("list-settings-app-list"); if (position != null) list.onRestoreInstanceState(position); if ("settings-query".equals(saved.getString("focus"))) search.requestFocus(); }

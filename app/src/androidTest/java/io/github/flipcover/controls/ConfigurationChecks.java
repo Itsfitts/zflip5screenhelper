@@ -33,6 +33,9 @@ final class ConfigurationChecks {
             roundtrip();
             homeBehavior();
             dockModes();
+            clockDockRules();
+            dockAutoReturn();
+            legacySystemUiDockRule();
             entryPositions();
             templates();
             malformed();
@@ -46,7 +49,7 @@ final class ConfigurationChecks {
 
     private void roundtrip() throws Exception {
         prefs.data.edit().putBoolean("input_enabled", true).putBoolean("gestures_enabled", false).putBoolean("avoid_keyboard", false).putBoolean("haptics", false)
-            .putBoolean("dock_auto_hide", false).putBoolean("dock_expandable", true).putStringSet("dock_compact_apps", Set.of("com.example.first", "com.example.second"))
+            .putBoolean("dock_auto_hide", false).putBoolean("dock_expandable", true).putBoolean("dock_clock_follows_rules", true).putStringSet("dock_compact_apps", Set.of("com.example.first", "com.example.second"))
             .putStringSet("status_hidden_apps", Set.of("com.example.second"))
             .putString("app_rotations", "{\"com.example.first\":3,\"com.example.second\":4}")
             .putString("dock", "[\"home\",\"back\",\"app_dock\"]").putString("panel", "[\"wifi\",\"media\",\"system_controls\"]")
@@ -131,6 +134,52 @@ final class ConfigurationChecks {
         }
         saved.getJSONObject("layout").remove("dockExpandable"); activity.applyConfigurationData(saved);
         require(!prefs.dockExpandable(), "legacy backups use resident mode without changing existing rules");
+    }
+
+    private void clockDockRules() throws Exception {
+        for (boolean follows : new boolean[]{false, true}) {
+            prefs.data.edit().putBoolean("dock_clock_follows_rules", follows).commit(); JSONObject saved = activity.exportConfigurationData();
+            prefs.data.edit().putBoolean("dock_clock_follows_rules", !follows).commit(); activity.applyConfigurationData(saved);
+            require(prefs.clockFollowsDockRules() == follows && new Prefs(activity).clockFollowsDockRules() == follows, "clock rule policy roundtrips " + follows);
+            prefs.saveLayout(); prefs.data.edit().putBoolean("dock_clock_follows_rules", !follows).commit(); prefs.restoreLayout(false);
+            require(prefs.clockFollowsDockRules() == follows, "layout restores clock rules " + follows);
+            prefs.restoreLayout(true); require(prefs.clockFollowsDockRules() != follows, "layout undo restores clock rules " + follows);
+            for (Object invalid : new Object[]{"true", 1, JSONObject.NULL}) {
+                JSONObject bad = new JSONObject(saved.toString()); bad.getJSONObject("layout").put("clockFollowsDockRules", invalid); reject(bad, "invalid clock rule policy is atomic");
+            }
+            saved.getJSONObject("layout").remove("clockFollowsDockRules"); activity.applyConfigurationData(saved);
+            require(!prefs.clockFollowsDockRules(), "legacy layouts force clock collapse");
+            activity.applyConfigurationData(new JSONObject(saved.toString()).put("version", 3)); require(!prefs.clockFollowsDockRules(), "legacy configuration without a layout forces clock collapse");
+            activity.applyConfigurationData(saved);
+        }
+    }
+
+    private void dockAutoReturn() throws Exception {
+        for (boolean enabled : new boolean[]{false, true}) {
+            prefs.data.edit().putBoolean("dock_auto_return_first_page", enabled).commit();
+            JSONObject saved = activity.exportConfigurationData();
+            prefs.data.edit().putBoolean("dock_auto_return_first_page", !enabled).commit(); activity.applyConfigurationData(saved);
+            require(prefs.dockAutoReturnFirstPage() == enabled, "auto return preference roundtrips " + enabled);
+            prefs.saveLayout(); prefs.data.edit().putBoolean("dock_auto_return_first_page", !enabled).commit(); prefs.restoreLayout(false);
+            require(prefs.dockAutoReturnFirstPage() == enabled, "layout restores auto return " + enabled);
+            prefs.restoreLayout(true); require(prefs.dockAutoReturnFirstPage() != enabled, "layout undo restores auto return " + enabled);
+            for (Object invalid : new Object[]{"true", 1, JSONObject.NULL}) {
+                JSONObject bad = new JSONObject(saved.toString()); bad.getJSONObject("layout").put("dockAutoReturnFirstPage", invalid); reject(bad, "invalid auto return preference is atomic");
+            }
+            saved.getJSONObject("layout").remove("dockAutoReturnFirstPage"); activity.applyConfigurationData(saved);
+            require(prefs.dockAutoReturnFirstPage(), "legacy layouts enable auto return by default");
+            activity.applyConfigurationData(new JSONObject(saved.toString()).put("version", 3)); require(prefs.dockAutoReturnFirstPage(), "legacy configuration enables auto return by default");
+            activity.applyConfigurationData(saved);
+        }
+    }
+
+    private void legacySystemUiDockRule() throws Exception {
+        JSONObject legacy = activity.exportConfigurationData().put("compactApps", new JSONArray(List.of("com.android.systemui", "com.sec.android.app.launcher", "com.example.first")));
+        activity.applyConfigurationData(legacy);
+        require(prefs.compactApps().equals(Set.of("com.sec.android.app.launcher", "com.example.first")), "legacy import excludes System UI and keeps other dock rules");
+        require(!prefs.data.getStringSet("dock_compact_apps", Set.of()).contains("com.android.systemui"), "legacy import removes the persisted System UI dock rule");
+        JSONArray exported = activity.exportConfigurationData().getJSONArray("compactApps");
+        require(exported.length() == 2 && !exported.toString().contains("com.android.systemui"), "configuration export cannot restore the removed System UI dock rule");
     }
 
     private void entryPositions() throws Exception {

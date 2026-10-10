@@ -61,7 +61,7 @@ public final class MainActivity extends Activity {
     private final List<Runnable> statusUpdates = new ArrayList<>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener modeChanged = (data, key) -> {
-        if (key == null || key.equals("dock_expandable")) main.post(this::syncDockModeSetting);
+        if (key == null || key.equals("dock_expandable") || key.equals("dock_clock_follows_rules")) main.post(this::syncDockModeSetting);
     };
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Runnable statusRefresh = new Runnable() {
@@ -187,8 +187,8 @@ public final class MainActivity extends Activity {
     private record Setting(String group, String page, int icon, String title, String keywords, Supplier<String> value) { }
     private List<Setting> settings() {
         return List.of(
-            new Setting("快捷栏与手势", "dock", R.drawable.ic_ms_tune, "按钮与布局", "数量 固定键 顺序 阻尼 快捷栏 Home 主页 锁屏 应用中心", () -> prefs.perPage() + " 个 / 页 · " + ActionCatalog.label(this, prefs.pinnedAction())),
-            new Setting("快捷栏与手势", "visibility", R.drawable.ic_ms_home, "快捷栏模式与收起", "常驻 收起 展开 箭头 按前台应用自动隐藏 桌面 键盘 应用名单", this::dockModeLabel),
+            new Setting("快捷栏与手势", "dock", R.drawable.ic_ms_tune, "按钮与布局", "数量 固定键 顺序 阻尼 快捷栏 Home 主页 锁屏 应用中心 自动 回到 第一页 翻页", () -> prefs.perPage() + " 个 / 页 · " + ActionCatalog.label(this, prefs.pinnedAction())),
+            new Setting("快捷栏与手势", "visibility", R.drawable.ic_ms_home, "快捷栏模式与收起", "常驻 收起 展开 箭头 首页 时钟 同步 跟随 规则 按前台应用自动隐藏 桌面 键盘 应用名单", this::dockModeLabel),
             new Setting("快捷栏与手势", "gestures", R.drawable.ic_ms_swap_vert, "手势与导航避让", "震动 偏移 白条 摄像头 上滑 通知 旋转 位置 安全区 Home 返回", () -> prefs.gesturesEnabled() ? "白条拖动已开启" : "白条拖动已关闭"),
             new Setting("快捷栏与手势", "hand", R.drawable.ic_ms_accessibility_new, "单手布局", "左手 右手", () -> handLabel()),
             new Setting("状态栏与外观", "settings_scale", R.drawable.ic_ms_accessibility_new, "设置界面缩放", "大小 字号 缩放", () -> prefs.settingsScale() + "%"),
@@ -348,21 +348,29 @@ public final class MainActivity extends Activity {
         begin("快捷栏模式与收起", "visibility");
         LinearLayout mode = group("visibility-mode");
         toggle(mode, "收起展开模式", dockModeSummary(), "dock_expandable", BuildConfig.DEFAULTS_DOCK_EXPANDABLE);
-        note("长按可见白条是此开关的快捷方式。箭头单击展开／收起，切换应用和返回桌面保持当前状态；息屏后保留模式，再次亮屏从收起开始。");
+        toggle(mode, "首页跟随快捷栏规则", clockDockSummary(), "dock_clock_follows_rules", BuildConfig.DEFAULTS_DOCK_CLOCK_FOLLOWS_RULES);
+        note("长按可见白条切换“收起展开模式”。箭头单击展开／收起，切换应用和返回桌面保持当前状态；息屏后保留模式，再次亮屏从收起开始。");
         LinearLayout group = group("visibility-options");
-        toggle(group, "按前台应用自动隐藏", "指定应用中的快捷栏和箭头都隐藏；时钟首页保留箭头", "dock_auto_hide", BuildConfig.DEFAULTS_DOCK_AUTO_HIDE);
+        toggle(group, "按前台应用自动隐藏", "指定应用中的快捷栏和箭头都隐藏；首页是否跟随由上方开关决定", "dock_auto_hide", BuildConfig.DEFAULTS_DOCK_AUTO_HIDE);
         toggle(group, "键盘出现时收起", "常驻模式下，仅检测外屏键盘，关闭键盘后恢复", "avoid_keyboard", BuildConfig.DEFAULTS_DOCK_AVOID_KEYBOARD);
         link(group, 0, "选择自动隐藏的应用", prefs.compactApps().size() + " 个应用", "visibility_apps");
-        note("两种模式下，时钟首页都保留箭头入口；其他应用遵循自动隐藏名单。键盘避让仅用于常驻模式。双白条入口保留。只读取外屏窗口元数据，不读取页面文字或输入内容。");
+        note("首页指三星外屏时钟页。关闭首页跟随时，每次进入首页强制收起，保留可点击并自动淡出的箭头；开启后，首页遵循常驻／收起展开模式及应用隐藏规则。键盘避让仅用于常驻模式。双白条入口保留。只读取外屏窗口元数据，不读取页面文字或输入内容。");
     }
     private String dockModeLabel() { return prefs.dockExpandable() ? "收起展开模式" : "常驻模式"; }
     private String dockModeSummary() { return prefs.dockExpandable() ? "已开启 · 点击箭头展开或收起快捷栏" : "已关闭 · 常驻模式，仍遵循下方自动避让设置"; }
+    private String clockDockSummary() { return prefs.clockFollowsDockRules() ? "已开启 · 首页同步模式、展开状态及应用隐藏规则" : "已关闭 · 首页强制收起，保留自动淡出的箭头"; }
     private void syncDockModeSetting() {
         if (body == null) return;
         SettingsUi.ValueRow home = body.findViewWithTag("settings-link-group_dock"), result = body.findViewWithTag("search-visibility");
         if (home != null) home.value(prefs.perPage() + " 个 / 页 · " + dockModeLabel());
         if (result != null) result.value(dockModeLabel() + "\n快捷栏与手势");
         if (route.equals("group_dock")) { SettingsUi.ValueRow row = body.findViewWithTag("settings-link-visibility"); if (row != null) row.value(dockModeLabel()); }
+        View clockControl = body.findViewWithTag("dock_clock_follows_rules");
+        if (clockControl instanceof Switch toggle) {
+            bindingUI = true;
+            try { toggle.setChecked(prefs.clockFollowsDockRules()); SettingsUi.toggleSummary(toggle).setText(clockDockSummary()); toggle.setContentDescription("首页跟随快捷栏规则，" + clockDockSummary()); }
+            finally { bindingUI = false; }
+        }
         View control = body.findViewWithTag("dock_expandable");
         if (!(control instanceof Switch toggle)) return;
         bindingUI = true;
@@ -394,6 +402,7 @@ public final class MainActivity extends Activity {
             LinearLayout options = group("dock-options"); options.addView(SettingsUi.valueRow(this, "固定按钮", ActionCatalog.label(this, prefs.pinnedAction()), () -> { editing = "pinned"; library("builtin", false); }));
             choice(options, "Home 按钮效果", "dock-home-action", new String[]{"返回锁屏页面（时钟首页）", "返回应用中心（需 Shizuku）"}, new Object[]{"clock", "cards"}, () -> prefs.homeAction(), value -> prefs.data.edit().putString("home_action", (String) value).apply());
             choice(options, "起步阻尼", "dock-damping", new String[]{"轻", "标准", "强"}, new Object[]{0, 1, 2}, () -> prefs.damping(), value -> prefs.data.edit().putInt("damping", (int) value).apply());
+            toggle(options, "自动回到第一页", "停止操作 " + BuildConfig.MOTION_DOCK_AUTO_RETURN_DELAY_MS / 1000 + " 秒后返回；关闭后保留当前页", "dock_auto_return_first_page", BuildConfig.DEFAULTS_DOCK_AUTO_RETURN_FIRST_PAGE);
             options.addView(SettingsUi.valueRow(this, "按钮顺序", prefs.scrollingActions().size() + " 个翻页按钮", () -> orderEditor("dock"))); note("每页包含 1 个固定按钮，其余按钮可滑动翻页。"); note("返回锁屏页面：回到三星时钟首页，不主动锁定手机。返回应用中心：需要 Shizuku，返回三星保留的原卡片页；如果已切到其他卡片，会返回那一页。"); related("快捷栏模式与收起", "visibility"); return;
         }
         LinearLayout preview = group("panel-preview-group"); Button toggle = SettingsUi.button(this, panelPreviewExpanded ? "收起布局预览" : "展开布局预览", () -> { panelPreviewExpanded = !panelPreviewExpanded; updatePanelPreview(); }); toggle.setTag("panel-preview-toggle"); preview.addView(toggle); panelPreviewHost = SettingsUi.column(this); preview.addView(panelPreviewHost); updatePanelPreview();
@@ -543,6 +552,7 @@ public final class MainActivity extends Activity {
         LinearLayout options = group("calibration-options"); LinearLayout manual = SettingsUi.group(this); manual.setTag("calibration-manual"); SettingsUi.add(body, manual);
         Switch automatic = SettingsUi.toggle(options, "根据系统缺口定位", "每个旋转方向使用对应的安全区域", prefs.data.getBoolean("auto_placement", true), enabled -> { prefs.data.edit().putBoolean("auto_placement", enabled).apply(); manual.setVisibility(enabled ? View.GONE : View.VISIBLE); }); automatic.setTag("auto_placement"); manual.setVisibility(automatic.isChecked() ? View.GONE : View.VISIBLE);
         choice(manual, "当前方向的停靠角落", "calibration-corner", new String[]{"左上", "右上", "右下", "左下"}, new Object[]{0, 1, 2, 3}, () -> prefs.corner(display.getRotation()), value -> { if (Displays.selected(this, prefs) == null || Displays.selected(this, prefs).getDisplayId() != display.getDisplayId()) throw new IllegalStateException("外屏已改变，请重新打开设置"); prefs.data.edit().putInt("corner_" + display.getRotation(), (int) value).apply(); });
+        if (prefs.reverseLandscapeLayout(display.getRotation())) note("左右反向已开启：快捷栏显示在上述停靠角落的对角位置，并继续避让真实缺口。");
         slider(manual, "快捷栏长度", "dock_width", 25, 70, Math.round(prefs.widthRatio() * 100), "%", value -> { }, value -> prefs.data.edit().putFloat("dock_width", value / 100f).apply());
         slider(manual, "可见区域厚度", "dock_height", 5, 22, Math.round(prefs.heightRatio() * 100), "%", value -> { }, value -> prefs.data.edit().putFloat("dock_height", value / 100f).apply());
         group("calibrate-stop").addView(SettingsUi.settingRow(this, 0, "暂停快捷栏", "保留当前布局配置", () -> { prefs.data.edit().putBoolean("enabled", false).apply(); toast("已暂停快捷栏"); }));
@@ -638,10 +648,10 @@ public final class MainActivity extends Activity {
         if (compactApps != null) {
             java.util.Set<String> names = new java.util.HashSet<>();
             for (int i = 0; i < compactApps.length(); i++) { String name = compactApps.getString(i); if (!name.matches("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+")) throw new IllegalArgumentException("无效应用规则"); names.add(name); }
-            update.putStringSet("dock_compact_apps", names);
+            names.remove("com.android.systemui"); update.putStringSet("dock_compact_apps", names);
         }
         update.putBoolean("input_enabled", config.optBoolean("inputEnabled", false));
-        update.putBoolean("dock_auto_hide", config.optBoolean("dockAutoHide", true)).putString("home_action", "cards").putBoolean("dock_expandable", false);
+        update.putBoolean("dock_auto_hide", config.optBoolean("dockAutoHide", true)).putString("home_action", "cards").putBoolean("dock_expandable", false).putBoolean("dock_clock_follows_rules", false).putBoolean("dock_auto_return_first_page", BuildConfig.DEFAULTS_DOCK_AUTO_RETURN_FIRST_PAGE);
         if (favorites != null) update.putString("favorites", new JSONArray(savedFavorites).toString());
         update.putString("pinned_action", pinned).putBoolean("panel_blur", config.optBoolean("blur", true)).putString("dock", new JSONArray(parsed.get("dock")).toString()).putString("panel", new JSONArray(parsed.get("panel")).toString()).putInt("per_page", count).putInt("damping", damping);
         update.putBoolean("avoid_keyboard", config.optBoolean("avoidKeyboard", prefs.avoidKeyboard())).putBoolean("haptics", config.optBoolean("haptics", prefs.haptics()));

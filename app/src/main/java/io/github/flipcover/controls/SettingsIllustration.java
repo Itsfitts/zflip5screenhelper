@@ -26,7 +26,7 @@ final class SettingsIllustration extends View {
         int width = angle % 2 == 0 ? 748 : 720, height = angle % 2 == 0 ? 720 : 748;
         DockGeometry.Box[] cameras = {new DockGeometry.Box(379, 654, 369, 66), new DockGeometry.Box(654, 0, 66, 369), new DockGeometry.Box(0, 0, 369, 66), new DockGeometry.Box(0, 379, 66, 369)};
         java.util.List<DockGeometry.Box> cuts = java.util.List.of(cameras[angle]);
-        DockGeometry.Placement dock = DockGeometry.resolve(width, height, cuts, 2.125f, (angle + 3) % 4, .46f, .088f, true);
+        DockGeometry.Placement dock = DockGeometry.resolve(width, height, cuts, 2.125f, (angle + 3) % 4, .46f, .088f, true, angle, prefs.reverseLandscapeLayout(angle));
         int topInset = DockGeometry.panelEntryTopInset(prefs.entryPosition(angle), prefs.statusScale(), 2.125f);
         DockGeometry.Placement entry = DockGeometry.panelEntry(dock, dock, width, height, cuts, 2.125f, 24, prefs.entryPosition(angle), topInset);
         float scale = Math.min(Math.max(20, availableWidth) / width, 68f / height);

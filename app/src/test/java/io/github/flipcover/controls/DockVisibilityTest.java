@@ -93,11 +93,47 @@ public class DockVisibilityTest {
         state.clock(true); assertTrue(state.compact(true, hidden));
         state.toggle(true, hidden); state.reset(); state.clock(true); assertTrue(state.compact(true, hidden));
     }
-    @Test public void arrowModeKeepsExpansionWhenEnteringAndLeavingTheClockException() {
+    @Test public void forcedClockCollapseIsIndependentOfTheExpandedAppSession() {
         DockVisibility state = new DockVisibility(); state.expandable(true); state.foreground("browser"); state.toggle(true, hidden);
-        state.foreground("systemui"); state.clock(true); assertFalse(state.compact(true, hidden));
+        state.foreground("systemui"); state.clock(true); assertTrue(state.compact(true, hidden));
+        state.toggle(true, hidden); assertFalse(state.compact(true, hidden));
         state.clock(false); assertTrue(state.compact(true, hidden));
         state.foreground("browser"); assertFalse(state.compact(true, hidden));
-        state.clock(true); state.toggle(true, hidden); state.clock(false); assertTrue(state.compact(true, hidden));
+        state.clock(true); assertTrue(state.compact(true, hidden)); state.clock(false); assertFalse(state.compact(true, hidden));
+    }
+    @Test public void followingClockUsesBothModesAndAutomaticApplicationRules() {
+        for (boolean arrowMode : new boolean[]{false, true}) for (boolean automatic : new boolean[]{false, true}) {
+            DockVisibility state = new DockVisibility(); state.clockFollowsRules(true); state.expandable(arrowMode); state.foreground("browser"); state.toggle(automatic, hidden);
+            state.foreground("systemui"); state.clock(true);
+            assertFalse(state.clockOverride()); assertEquals(automatic, state.automaticallyCompact(automatic, hidden)); assertEquals(automatic, state.compact(automatic, hidden));
+            state.toggle(automatic, hidden); assertEquals(automatic || arrowMode, state.compact(automatic, hidden));
+            state.clock(false); state.foreground("browser"); assertEquals(arrowMode && !automatic, state.compact(automatic, hidden));
+        }
+    }
+    @Test public void followingClockHonorsResidentKeyboardAvoidanceAndDisabledOrEmptyLists() {
+        DockVisibility state = new DockVisibility(); state.clockFollowsRules(true); state.clock(true); state.foreground("systemui");
+        assertFalse(state.compact(false, hidden)); assertFalse(state.compact(true, Set.of()));
+        state.keyboard(true); assertTrue(state.compact(false, hidden)); state.keyboard(false); assertFalse(state.compact(false, hidden));
+        state.foreground(null); assertFalse(state.compact(true, hidden));
+    }
+    @Test public void changingClockPolicyClearsOnlyTemporaryExpansionAndResetKeepsThePolicy() {
+        DockVisibility state = new DockVisibility(); state.expandable(true); state.toggle(false, hidden); state.clock(true);
+        state.toggle(false, hidden); assertFalse(state.compact(false, hidden));
+        state.clockFollowsRules(true); assertFalse(state.compact(false, hidden));
+        state.clockFollowsRules(false); assertTrue(state.compact(false, hidden));
+        state.clock(false); assertFalse(state.compact(false, hidden));
+        state.clockFollowsRules(true); state.reset(); state.clock(true); assertFalse(state.clockOverride()); assertTrue(state.compact(false, hidden));
+    }
+    @Test public void clockPagingGuardFollowsDestinationStateInsteadOfTheApplicationList() {
+        DockVisibility state = new DockVisibility();
+        for (boolean arrowMode : new boolean[]{false, true}) {
+            state.expandable(arrowMode); state.toggle(false, Set.of());
+            assertTrue(state.watchClockPaging()); assertTrue(state.clockNeedsCollapse());
+        }
+        state.clockFollowsRules(true); state.expandable(false);
+        assertFalse(state.watchClockPaging()); assertFalse(state.clockNeedsCollapse());
+        state.expandable(true); assertTrue(state.watchClockPaging()); assertTrue(state.clockNeedsCollapse());
+        state.toggle(false, Set.of()); assertTrue(state.watchClockPaging()); assertFalse(state.clockNeedsCollapse());
+        state.clockFollowsRules(false); assertTrue(state.clockNeedsCollapse());
     }
 }

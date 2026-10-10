@@ -17,12 +17,21 @@ final class ClockDockChecks {
     private DockHandleView arrow;
     private int clicks, outsideClicks, assertions;
     ClockDockChecks(Instrumentation test) { this.test = test; }
+    String runCardExit() {
+        activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("section", "visibility"));
+        try {
+            test.runOnMainSync(() -> { prefs = new Prefs(activity); root = new FrameLayout(activity); activity.setContentView(root); }); test.waitForIdleSync();
+            verifyNavigationSafeMount();
+            return "PASS: " + assertions + " native card exit, clock paging and shortcut window checks";
+        } finally { test.runOnMainSync(activity::finish); }
+    }
     private void require(boolean value, String reason) { assertions++; if (!value) throw new AssertionError(reason); }
     private void waitAnimation() { SystemClock.sleep(BuildConfig.MOTION_HANDLES_FADE_IN_MS + 120); test.waitForIdleSync(); }
     String run() {
         activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("section", "visibility"));
         try {
             verifyModeSetting();
+            verifyClockRuleSetting();
             verifyModeSummaries();
             test.runOnMainSync(() -> {
                 prefs = new Prefs(activity); prefs.data.edit().putBoolean("haptics", false).commit();
@@ -158,6 +167,36 @@ final class ClockDockChecks {
                 prefs.dockExpandable(false);
                 if (service[0] != null) { service[0].main.removeCallbacksAndMessages(null); ((java.util.concurrent.ExecutorService) getField(service[0], "files")).shutdown(); }
             });
+        }
+    }
+    private void verifyClockRuleSetting() {
+        android.widget.Switch control = activity.findViewById(android.R.id.content).findViewWithTag("dock_clock_follows_rules");
+        View scroll = activity.findViewById(android.R.id.content).findViewWithTag("settings-scroll");
+        boolean original = prefs.clockFollowsDockRules(); int[] writes = {0};
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener count = (data, key) -> { if ("dock_clock_follows_rules".equals(key)) writes[0]++; };
+        test.runOnMainSync(() -> prefs.data.edit().putBoolean("dock_clock_follows_rules", false).apply()); test.waitForIdleSync();
+        prefs.data.registerOnSharedPreferenceChangeListener(count);
+        try {
+            test.runOnMainSync(() -> ((View) control.getParent()).performClick()); test.waitForIdleSync();
+            require(prefs.clockFollowsDockRules() && control.isChecked() && writes[0] == 1 && control.getContentDescription().toString().contains("同步"), "clock policy row saves once and updates its summary in place");
+            test.runOnMainSync(control::performClick); test.waitForIdleSync();
+            require(!prefs.clockFollowsDockRules() && !control.isChecked() && writes[0] == 2 && control.getContentDescription().toString().contains("强制收起"), "clock policy switch reverses once and refreshes its summary");
+            require(scroll == activity.findViewById(android.R.id.content).findViewWithTag("settings-scroll"), "clock policy changes retain settings scroll");
+            test.runOnMainSync(() -> {
+                CoverService owner = new CoverService(); owner.prefs = prefs;
+                try {
+                    var attach = android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext", android.content.Context.class); attach.setAccessible(true); attach.invoke(owner, activity);
+                    DockVisibility state = (DockVisibility) getField(owner, "dockVisibility"); state.clock(true);
+                    prefs.data.edit().putBoolean("dock_clock_follows_rules", true).apply(); invokeNoArgs(owner, "updateApplicationRules"); state.clock(true);
+                    require(!state.clockOverride(), "production preference refresh enables clock rule following");
+                    prefs.data.edit().putBoolean("dock_clock_follows_rules", false).apply(); invokeNoArgs(owner, "updateApplicationRules"); state.clock(true);
+                    require(state.clockOverride() && state.compact(false, java.util.Set.of()), "production preference refresh restores forced clock collapse");
+                } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+                finally { owner.main.removeCallbacksAndMessages(null); ((java.util.concurrent.ExecutorService) getField(owner, "files")).shutdown(); }
+            });
+        } finally {
+            prefs.data.unregisterOnSharedPreferenceChangeListener(count);
+            test.runOnMainSync(() -> prefs.data.edit().putBoolean("dock_clock_follows_rules", original).apply()); test.waitForIdleSync();
         }
     }
     private void verifyCoupledMotion() {
@@ -308,6 +347,21 @@ final class ClockDockChecks {
                     setField(owner, "coverClockVisible", false); setField(owner, "returningToClock", false); state.foreground("hidden.app"); invokeNoArgs(owner, "syncDockVisibility");
                     require(getField(owner, "dockHandle") == null && ((DockView) getField(owner, "dock")).compact(), "leaving clock restores hidden-app priority");
                 }
+                java.util.Set<String> applicationRules = prefs.compactApps();
+                require(!applicationRules.contains("com.android.systemui"), "production application rules exclude System UI");
+                setField(owner, "compactApplications", applicationRules);
+                state.clockFollowsRules(true); setField(owner, "coverClockVisible", true);
+                for (boolean expandable : new boolean[]{false, true}) {
+                    state.expandable(expandable); state.foreground("com.android.systemui"); invokeNoArgs(owner, "syncDockVisibility");
+                    require(((DockView) getField(owner, "dock")).compact() == expandable && (getField(owner, "dockHandle") != null) == expandable, "following clock uses the configured mode with application auto-hide enabled");
+                    setField(owner, "dockAppRulesEnabled", false); invokeNoArgs(owner, "syncDockVisibility");
+                    require(((DockView) getField(owner, "dock")).compact() == expandable && (getField(owner, "dockHandle") != null) == expandable, "following clock resumes the configured mode when app hiding is disabled");
+                    setField(owner, "dockAppRulesEnabled", true);
+                }
+                state.clockFollowsRules(false); invokeNoArgs(owner, "syncDockVisibility");
+                require(getField(owner, "dockHandle") != null && ((DockView) getField(owner, "dock")).compact(), "disabling clock following remounts the collapsed arrow despite the app list");
+                verifyClockPagingTransition(owner);
+                verifyClockCallbackTransition(owner);
             });
         } finally {
             try {
@@ -321,6 +375,67 @@ final class ClockDockChecks {
                 });
             } finally { try { if (target[0] != null) target[0].release(); } finally { surface.close(); } }
         }
+    }
+    private void verifyClockPagingTransition(CoverService owner) {
+        DockVisibility state = (DockVisibility) getField(owner, "dockVisibility"); DockView dock = (DockView) getField(owner, "dock");
+        for (boolean arrowMode : new boolean[]{false, true}) for (boolean automatic : new boolean[]{false, true}) {
+            state.clock(false); state.clockFollowsRules(false); state.expandable(false); state.expandable(arrowMode); state.foreground("com.sec.android.app.launcher");
+            if (arrowMode) state.toggle(false, java.util.Set.of());
+            setField(owner, "coverClockVisible", false); setField(owner, "returningToClock", false);
+            setField(owner, "compactApplications", java.util.Set.of("other.app")); setField(owner, "dockAppRulesEnabled", automatic);
+            invokeNoArgs(owner, "syncDockVisibility"); dock.launcherDisabled(true);
+            require(!dock.compact() && dock.launcherEntryDiagnostics().equals("disabled=true"), "native launcher starts with visible disabled shortcut entries");
+            require(!prepareClockPageTransition(owner, 0, "com.android.systemui") && !prepareClockPageTransition(owner, owner.display.getDisplayId(), "other.app") && !prepareClockPageTransition(owner, owner.display.getDisplayId(), null), "paging guard rejects main-display, other-package and unknown events");
+            require(!dock.compact() && !(boolean) getField(owner, "returningToClock"), "rejected paging events leave the visible dock unchanged");
+            require(prepareClockPageTransition(owner, owner.display.getDisplayId(), "com.android.systemui"), "clock paging guard runs without a System UI hide rule and with auto-hide in either state");
+            require(dock.compact() && dock.getVisibility() == View.GONE && getField(owner, "dockHandle") == null, "paging hides shortcuts before clock metadata and arrow attachment");
+            setField(owner, "launcherHostFocused", false); owner.launcherVisibilityChanged();
+            require(dock.launcherEntryDiagnostics().equals("disabled=false") && dock.getVisibility() == View.GONE, "launcher entries become available only while the old dock is hidden");
+            state.foreground(null); invokeNoArgs(owner, "syncDockVisibility");
+            require(dock.getVisibility() == View.GONE && getField(owner, "dockHandle") == null, "unresolved intermediate page cannot flash the now-enabled entries");
+            setField(owner, "coverClockVisible", true); invokeNoArgs(owner, "syncDockVisibility");
+            DockHandleView landed = (DockHandleView) getField(owner, "dockHandle");
+            require(landed != null && !landed.expanded() && dock.compact() && getField(owner, "dockHandleMotion") == null && dock == getField(owner, "dock"), "confirmed clock mounts only its collapsed arrow and retains the original shortcut window");
+        }
+        for (boolean arrowMode : new boolean[]{false, true}) {
+            state.clock(false); state.clockFollowsRules(true); state.expandable(false); state.expandable(arrowMode);
+            if (arrowMode) state.toggle(false, java.util.Set.of());
+            setField(owner, "coverClockVisible", false); setField(owner, "returningToClock", false); setField(owner, "dockAppRulesEnabled", false);
+            invokeNoArgs(owner, "syncDockVisibility");
+            require(!prepareClockPageTransition(owner, owner.display.getDisplayId(), "com.android.systemui") && !dock.compact(), "following resident or expanded mode does not pre-hide the visible dock");
+        }
+    }
+    private boolean prepareClockPageTransition(CoverService owner, int eventDisplayId, CharSequence packageName) {
+        try { var method = CoverService.class.getDeclaredMethod("prepareClockPageTransition", int.class, CharSequence.class); method.setAccessible(true); return (boolean) method.invoke(owner, eventDisplayId, packageName); }
+        catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+    }
+    private void verifyClockCallbackTransition(CoverService owner) {
+        DockVisibility state = (DockVisibility) getField(owner, "dockVisibility"); DockView dock = (DockView) getField(owner, "dock");
+        for (boolean arrowMode : new boolean[]{false, true}) {
+            state.clock(false); state.clockFollowsRules(false); state.expandable(false); state.expandable(arrowMode);
+            if (arrowMode) state.toggle(false, java.util.Set.of());
+            setField(owner, "coverClockVisible", false); setField(owner, "returningToClock", false); setField(owner, "launcherHostFocused", true); setField(owner, "nativeHostVisible", true); setField(owner, "dockAppRulesEnabled", false);
+            invokeNoArgs(owner, "syncDockVisibility"); dock.launcherDisabled(true);
+            owner.launcherVisibilityChanged();
+            require(!dock.compact() && dock.launcherEntryDiagnostics().equals("disabled=true"), "card-invisible callback before page metadata retains disabled entries without any paging event");
+            setField(owner, "launcherHostFocused", false); setField(owner, "nativeHostVisible", false); owner.launcherVisibilityChanged();
+            require(dock.launcherEntryDiagnostics().equals("disabled=true"), "temporary focus loss cannot re-enable the entries before the destination is known");
+            setField(owner, "coverClockVisible", true); invokeNoArgs(owner, "syncDockVisibility"); owner.launcherVisibilityChanged();
+            require(dock.compact() || dock.launcherDisabled(), "clock collapse never presents enabled launcher entries before hiding");
+            android.animation.ValueAnimator motion = (android.animation.ValueAnimator) getField(owner, "dockHandleMotion"); if (motion != null) motion.end();
+            owner.launcherVisibilityChanged();
+            require(dock.getVisibility() == View.GONE && dock.launcherEntryDiagnostics().equals("disabled=false") && getField(owner, "dockHandle") != null, "confirmed clock hides the dock before re-enabling its entries");
+        }
+        state.clock(false); state.expandable(false); state.clockFollowsRules(false); setField(owner, "coverClockVisible", false); setField(owner, "nativeHostVisible", true); setField(owner, "launcherHostFocused", true); setField(owner, "foregroundSceneResolved", true);
+        invokeNoArgs(owner, "syncDockVisibility"); dock.launcherDisabled(true); owner.launcherVisibilityChanged();
+        require(dock.launcherDisabled() && (boolean) getField(owner, "launcherExitPending"), "another native card temporarily retains disabled entries while its identity is uncertain");
+        ((Runnable) getField(owner, "settleLauncherEntry")).run(); owner.launcherVisibilityChanged();
+        require(!dock.launcherDisabled() && !(boolean) getField(owner, "launcherExitPending") && !dock.compact(), "bounded native-card fallback restores entries without rearming the exit wait");
+        dock.launcherDisabled(true); setField(owner, "foregroundSceneResolved", false); owner.launcherVisibilityChanged();
+        setField(owner, "nativeHostVisible", false); setField(owner, "launcherHostFocused", false); setField(owner, "foregroundSceneResolved", true); owner.launcherVisibilityChanged();
+        require(!dock.launcherDisabled() && !(boolean) getField(owner, "launcherExitPending"), "confirmed ordinary application releases exit deferral immediately");
+        state.clockFollowsRules(true); state.expandable(false); setField(owner, "nativeHostVisible", true); setField(owner, "launcherHostFocused", true); dock.launcherDisabled(true); owner.launcherVisibilityChanged();
+        require(!dock.launcherDisabled() && !dock.compact(), "following resident mode can re-enable entries immediately because its dock stays visible");
     }
     private android.view.WindowManager.LayoutParams testWindow(DockGeometry.Box box) {
         var layout = new android.view.WindowManager.LayoutParams(box.width(), box.height(), android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL, android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, android.graphics.PixelFormat.TRANSLUCENT);

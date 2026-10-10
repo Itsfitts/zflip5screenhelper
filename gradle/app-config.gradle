@@ -15,6 +15,8 @@ def parameters = [
     'defaults.dock.heightRatio': ['float', 0.05, 0.22],
     'defaults.dock.autoHide': ['boolean'],
     'defaults.dock.expandable': ['boolean'],
+    'defaults.dock.clockFollowsRules': ['boolean'],
+    'defaults.dock.autoReturnFirstPage': ['boolean'],
     'defaults.dock.avoidKeyboard': ['boolean'],
     'defaults.dock.haptics': ['boolean'],
     'defaults.dock.gestures': ['boolean'],
@@ -95,6 +97,7 @@ def parameters = [
     'motion.header.splitDurationMs': ['int', 1, 2000],
     'motion.dock.fusionWaitMs': ['int', 0, 2000],
     'motion.dock.fusionDurationMs': ['int', 1, 2000],
+    'motion.dock.autoReturnDelayMs': ['int', 1000, 60000],
     'motion.handles.fadeInMs': ['int', 1, 2000],
     'motion.handles.fadeOutMs': ['int', 1, 2000],
     'motion.handles.hideDelayMs': ['int', 0, 10000]

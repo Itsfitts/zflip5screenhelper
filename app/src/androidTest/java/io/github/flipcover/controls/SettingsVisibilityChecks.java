@@ -17,6 +17,7 @@ import java.util.Set;
 /** Samsung rule rows remain selectable independently of their saved switch state. */
 final class SettingsVisibilityChecks {
     private static final Set<String> SYSTEM_PACKAGES = Set.of("com.android.systemui", "com.sec.android.app.launcher");
+    private static final Set<String> DOCK_PACKAGES = Set.of("com.sec.android.app.launcher");
     private final UiSmokeInstrumentation test;
     private volatile MainActivity activity;
     private Prefs prefs;
@@ -81,18 +82,27 @@ final class SettingsVisibilityChecks {
         SharedPreferences data = test.getTargetContext().getSharedPreferences("cover", 0); Map<String, ?> original = data.getAll();
         try {
             data.edit().clear().putBoolean("enabled", false).commit(); prefs = new Prefs(test.getTargetContext());
-            require(prefs.compactApps().equals(SYSTEM_PACKAGES), "default Samsung rules remain checked");
+            require(prefs.compactApps().equals(DOCK_PACKAGES), "only Samsung launcher is hidden by default");
+            prefs.data.edit().putStringSet("dock_compact_apps", SYSTEM_PACKAGES).putStringSet("status_hidden_apps", Set.of("com.android.systemui")).commit();
+            require(prefs.compactApps().equals(DOCK_PACKAGES), "saved System UI dock rule is ignored immediately");
+            prefs = new Prefs(test.getTargetContext());
+            require(prefs.data.getStringSet("dock_compact_apps", Set.of()).equals(DOCK_PACKAGES) && prefs.statusHiddenApps().contains("com.android.systemui"), "preference owner removes old dock rule while preserving status rules");
+            prefs.saveStatusHiddenApps(Set.of());
             CoverApp.catalog(test.getTargetContext()).entriesBlocking(); open();
-            for (String name : SYSTEM_PACKAGES) toggle(name, true, false);
+            for (String query : new String[]{"com.android.systemui", "三星外屏与系统面板"}) {
+                test.runOnMainSync(() -> this.query.setText(query)); test.waitForIdleSync();
+                require(((ListView) root().findViewWithTag("settings-app-list")).getAdapter().getCount() == 1 && root().findViewWithTag("app-toggle-com.android.systemui") == null, "System UI is absent from dock rules by package and label");
+            }
+            for (String name : DOCK_PACKAGES) toggle(name, true, false);
             require(prefs.compactApps().isEmpty(), "empty selection remains explicitly saved");
-            open(); for (String name : SYSTEM_PACKAGES) search(name, false);
+            open(); for (String name : DOCK_PACKAGES) search(name, false);
             test.runOnMainSync(() -> CoverApp.catalog(test.getTargetContext()).invalidate());
             CoverApp.catalog(test.getTargetContext()).entriesBlocking(); test.waitForIdleSync();
-            for (String name : SYSTEM_PACKAGES) search(name, false);
-            for (String name : SYSTEM_PACKAGES) toggle(name, false, true);
-            open(); for (String name : SYSTEM_PACKAGES) search(name, true);
-            for (String name : SYSTEM_PACKAGES) toggle(name, true, true);
-            for (String name : SYSTEM_PACKAGES) toggle(name, false, false);
+            for (String name : DOCK_PACKAGES) search(name, false);
+            for (String name : DOCK_PACKAGES) toggle(name, false, true);
+            open(); for (String name : DOCK_PACKAGES) search(name, true);
+            for (String name : DOCK_PACKAGES) toggle(name, true, true);
+            for (String name : DOCK_PACKAGES) toggle(name, false, false);
             require(prefs.statusHiddenApps().isEmpty(), "shortcut rules do not change status-bar rules");
             Set<String> compact = prefs.compactApps();
             open("status"); for (String name : SYSTEM_PACKAGES) toggle(name, false, false);
@@ -101,7 +111,7 @@ final class SettingsVisibilityChecks {
             for (String name : SYSTEM_PACKAGES) toggle(name, false, true);
             require(prefs.statusHiddenApps().equals(SYSTEM_PACKAGES) && prefs.compactApps().equals(compact), "status rules can be re-enabled independently of shortcut rules");
             prefs.data.edit().putStringSet("dock_compact_apps", Set.of("com.example.unavailable")).commit();
-            open(); search("com.example.unavailable", true); for (String name : SYSTEM_PACKAGES) search(name, false);
+            open(); search("com.example.unavailable", true); for (String name : DOCK_PACKAGES) search(name, false);
             require(prefs.compactApps().equals(Set.of("com.example.unavailable")), "opening the list does not restore defaults or change saved rules");
             int observers = CoverApp.catalog(test.getTargetContext()).observerCount();
             test.runOnMainSync(() -> activity.onBackPressed()); test.waitForIdleSync();

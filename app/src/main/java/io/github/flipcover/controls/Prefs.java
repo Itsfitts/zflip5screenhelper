@@ -37,6 +37,7 @@ public final class Prefs {
             }
             edit.apply();
         }
+        if (data.getStringSet("dock_compact_apps", java.util.Set.of()).contains("com.android.systemui")) data.edit().putStringSet("dock_compact_apps", compactApps()).apply();
     }
     void migrateInputTile() {
         if (data.getBoolean("input_tile_migrated", false)) return;
@@ -144,6 +145,8 @@ public final class Prefs {
     }
     public boolean autoHideDock() { return data.getBoolean("dock_auto_hide", BuildConfig.DEFAULTS_DOCK_AUTO_HIDE); }
     public boolean dockExpandable() { return data.getBoolean("dock_expandable", BuildConfig.DEFAULTS_DOCK_EXPANDABLE); }
+    public boolean clockFollowsDockRules() { return data.getBoolean("dock_clock_follows_rules", BuildConfig.DEFAULTS_DOCK_CLOCK_FOLLOWS_RULES); }
+    public boolean dockAutoReturnFirstPage() { return data.getBoolean("dock_auto_return_first_page", BuildConfig.DEFAULTS_DOCK_AUTO_RETURN_FIRST_PAGE); }
     void dockExpandable(boolean value) { data.edit().putBoolean("dock_expandable", value).apply(); }
     public String homeAction() { String value = data.getString("home_action", BuildConfig.DEFAULTS_DOCK_HOME_ACTION); return validHomeAction(value) ? value : BuildConfig.DEFAULTS_DOCK_HOME_ACTION; }
     static boolean validHomeAction(String value) { return "clock".equals(value) || "cards".equals(value); }
@@ -153,6 +156,10 @@ public final class Prefs {
     public String handSide() { String value = data.getString("hand_side", "auto"); return validHand(value) ? value : "auto"; }
     static boolean validHand(String value) { return value.equals("auto") || value.equals("left") || value.equals("right"); }
     public boolean leftHand() { return handSide().equals("left"); }
+    // Device compatibility stays local and is deliberately excluded from configuration exports.
+    boolean reverseLandscapeRotation() { return data.getBoolean("rotation_reverse_landscape", false); }
+    void reverseLandscapeRotation(boolean value) { data.edit().putBoolean("rotation_reverse_landscape", value).apply(); }
+    boolean reverseLandscapeLayout(int rotation) { return reverseLandscapeRotation() && (rotation == 1 || rotation == 3); }
     JSONObject rotationRules() { try { return new JSONObject(data.getString("app_rotations", "{}")); } catch (JSONException e) { return new JSONObject(); } }
     public int appRotation(String packageName) { int value = rotationRules().optInt(packageName, -1); return value >= 0 && value <= 4 ? value : -1; }
     void saveAppRotation(String packageName, int value) throws JSONException {
@@ -180,7 +187,7 @@ public final class Prefs {
         return "custom";
     }
     private boolean presetItem(String name, String item) { return name.equals("full") || item.equals("time") || item.equals("wifi") || item.equals("battery") || name.equals("daily") && (item.equals("notifications") || item.equals("alarm")); }
-    public java.util.Set<String> compactApps() { return new java.util.HashSet<>(data.getStringSet("dock_compact_apps", java.util.Set.of("com.android.systemui", "com.sec.android.app.launcher"))); }
+    public java.util.Set<String> compactApps() { java.util.Set<String> result = new java.util.HashSet<>(data.getStringSet("dock_compact_apps", java.util.Set.of("com.sec.android.app.launcher"))); result.remove("com.android.systemui"); return result; }
     public boolean statusItem(String item) { return data.getBoolean("status_" + item, !item.equals("speed") && !item.equals("cellular")); }
     public List<String> scrollingActions() { List<String> ids = actions("dock"); ids.remove(pinnedAction()); return ids; }
     public void pin(String id) {
@@ -280,7 +287,7 @@ public final class Prefs {
         JSONObject layout = new JSONObject().put("version", 11).put("workspace", workspaceJson(workspace())).put("workspaceColumns", workspace().columns()).put("workspaceRows", workspace().rows()).put("workspaceLocked", workspaceLocked()).put("workspaceLabels", workspaceLabels()).put("workspaceBadges", workspaceBadges()).put("workspaceDensity", workspaceDensity()).put("workspaceAliases", workspaceAliases()).put("workspaceCompact", workspaceCompact()).put("panelColumns", panelColumns()).put("panelOptions", panelOptions).put("hubPins", new JSONArray(hubPins())).put("hubSort", hubSort()).put("chrome", chromeStyle()).put("statusScale", statusScale()).put("statusSafeLeft", statusSafeLeft()).put("statusSafeRight", statusSafeRight()).put("batteryPercent", batteryPercent()).put("avoidNavigation", avoidNavigation()).put("navigationGap", navigationGap()).put("tapHandles", tapHandles()).put("hand", handSide()).put("perPage", perPage()).put("pinned", pinnedAction()).put("hubPinned", hubPinned()).put("damping", damping())
             .put("dock", new JSONArray(actions("dock"))).put("panel", new JSONArray(actions("panel"))).put("favorites", new JSONArray(actions("favorites")))
             .put("automatic", data.getBoolean("auto_placement", true)).put("width", widthRatio()).put("height", heightRatio()).put("blur", panelBlur()).put("statusEnabled", statusEnabled());
-        layout.put("homeAction", homeAction()).put("statusHiddenApps", new JSONArray(statusHiddenApps())).put("dockExpandable", dockExpandable());
+        layout.put("homeAction", homeAction()).put("statusHiddenApps", new JSONArray(statusHiddenApps())).put("dockExpandable", dockExpandable()).put("clockFollowsDockRules", clockFollowsDockRules()).put("dockAutoReturnFirstPage", dockAutoReturnFirstPage());
         JSONArray entries = new JSONArray(); for (int rotation = 0; rotation < 4; rotation++) entries.put(entryPosition(rotation)); layout.put("panelEntries", entries);
         JSONArray corners = new JSONArray(); for (int rotation = 0; rotation < 4; rotation++) corners.put(corner(rotation)); layout.put("corners", corners);
         JSONObject status = new JSONObject(); for (String item : STATUS_ITEMS) status.put(item, statusItem(item)); return layout.put("statusItems", status);
@@ -290,6 +297,12 @@ public final class Prefs {
         Object mode = layout.has("dockExpandable") ? layout.get("dockExpandable") : false;
         if (!(mode instanceof Boolean)) throw new IllegalArgumentException("快捷栏模式无效");
         update.putBoolean("dock_expandable", (Boolean) mode);
+        Object clockRules = layout.has("clockFollowsDockRules") ? layout.get("clockFollowsDockRules") : false;
+        if (!(clockRules instanceof Boolean)) throw new IllegalArgumentException("首页快捷栏规则无效");
+        update.putBoolean("dock_clock_follows_rules", (Boolean) clockRules);
+        Object autoReturn = layout.has("dockAutoReturnFirstPage") ? layout.get("dockAutoReturnFirstPage") : BuildConfig.DEFAULTS_DOCK_AUTO_RETURN_FIRST_PAGE;
+        if (!(autoReturn instanceof Boolean)) throw new IllegalArgumentException("快捷栏自动回到第一页设置无效");
+        update.putBoolean("dock_auto_return_first_page", (Boolean) autoReturn);
         for (String key : new String[]{"version", "perPage", "damping"}) workspaceInteger(layout.get(key));
         for (String key : new String[]{"automatic", "blur", "statusEnabled", "batteryPercent", "avoidNavigation", "tapHandles"}) if (layout.has(key) && !(layout.get(key) instanceof Boolean)) throw new IllegalArgumentException("布局开关值无效");
         for (String key : new String[]{"width", "height"}) if (!(layout.get(key) instanceof Number)) throw new IllegalArgumentException("布局尺寸无效");

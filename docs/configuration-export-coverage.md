@@ -9,12 +9,14 @@
 | 功能 | 导出内容 | JSON 字段 |
 | --- | --- | --- |
 | 快捷栏 | 动作/应用/磁贴入口及排序、固定按钮、每页数量、起步阻尼 | `dock`、`pinned`、`perPage`、`damping`（布局中也有） |
+| 快捷栏自动回页 | 停止操作5秒后回到第一页，默认开启 | 可选布尔值 `layout.dockAutoReturnFirstPage`；旧文件缺省使用配置默认值，布局备份、恢复与撤销共用，错误类型原子拒绝 |
 | Home 按钮效果 | 返回三星时钟首页或原生应用中心所在卡片页 | `layout.homeAction`：`clock` / `cards`；默认 `cards`，布局备份、恢复与撤销共用 |
 | 控制中心 | 快捷项和排序、3/4/5列、密度、名称及字号、工具区位置、亮度/音量/媒体工具开关、空闲媒体显示、模糊 | `panel`、`blur`、`layout.panelColumns`、`layout.panelOptions` |
 | 侧栏常用项 | 常用动作、应用入口及顺序 | `favorites` |
 | 鼠标与触控板 | 设备操作规则总开关，旧文件缺省关闭 | 可选布尔值 `inputEnabled`；不属于布局快照 |
 | 外观与状态栏 | 外观样式、启用、七个状态项目、缩放、电池百分比、左右安全留白 | `layout.chrome`、`statusEnabled`、`statusItems`、`layout.statusScale`、`layout.batteryPercent`、`layout.statusSafeLeft/Right` |
 | 手势与显隐 | 白条手势开关、轻震、自动收起、应用避让列表、键盘避让 | `gestures`、`haptics`、`dockAutoHide`、`compactApps`、`avoidKeyboard` |
+| 首页快捷栏规则 | 首页跟随常驻／收起展开及应用隐藏规则，或独立强制收起并保留箭头 | 可选布尔值 `layout.clockFollowsDockRules`；旧文件缺省为 `false`，布局备份、恢复与撤销共用，错误类型原子拒绝 |
 | 四方向白条位置 | 0° 左顶部/右底部，180° 固定左顶部，90°/270° 左顶部/右顶部；面板方向随入口 | `layout.panelEntries` 按 0/90/180/270° 保存四个字符串；仅接受 `top_left`、`top_right`、`bottom_right` 中该方向允许的值，布局备份与撤销共用 |
 | 导航避让与屏幕适配 | 导航避让及偏移、自动定位、四方向角落、长度/厚度比例、左右手布局 | `layout.avoidNavigation`、`navigationGap`、`automatic`、`corners`、`width/height`、`hand` |
 | 应用 Dock | 最多四个常驻应用及顺序，与桌面和文件夹互斥 | `layout.hubPins`，兼容字段 `hubPinned` |
@@ -24,6 +26,8 @@
 | 原生组合小组件 | 来源卡片编号、组件提供方、4×4内的位置及尺寸；不包含实例身份 | `widgetTemplates[].slot/items`，每项为 `provider/x/y/width/height` |
 
 手势字段中的旧 `tapHandles` 仅兼容历史配置，当前导出固定为关闭，不恢复轻点白条打开面板。
+
+`compactApps` 排除 `com.android.systemui`：旧配置导入会移除这条规则，其他应用选择保持。旧本机名单在偏好初始化时清理，运行与导出读取也排除它，不能通过旧名单继续隐藏首页快捷栏。“隐藏状态栏的应用”的独立名单不受此变更影响。
 
 ## 明确保留在本机或不属于配置的内容
 
@@ -36,6 +40,7 @@
 | 本机布局备份、时间及撤销历史 | 完整配置文件保存当前配置，不包含本机历史；导入保留布局备份和恢复撤销，清除控制中心旧撤销 |
 | 通知正文、最近任务/锁定、系统快照、媒体会话、临时显隐、未提交编辑草稿 | 临时运行状态，不进入配置文件 |
 | 亮度、音量、网络等实时系统状态 | 只迁移入口与工具显示偏好，不自动重放系统操作；显示器分辨率/DPI/当前旋转也不迁移 |
+| 旋转左右反向 | 改装设备的本机兼容选项，默认关闭；不导出，导入保留本机值 |
 | 升级迁移标记、目录/图标/搜索缓存 | 本机内部状态，无需导出 |
 | 外接设备身份与规则 | `input_devices` 的设备标识、模式、灵敏度仅本机保存，导入保留；临时暂停不持久化 |
 

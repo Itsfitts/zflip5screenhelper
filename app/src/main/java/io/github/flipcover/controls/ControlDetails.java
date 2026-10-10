@@ -20,6 +20,8 @@ final class ControlDetails implements AutoCloseable {
     private final Context context;
     private final DetailSheet sheet;
     private boolean closed, loading;
+    private RotationControls rotationControls;
+    boolean rotationPage() { return rotationControls != null && !closed; }
     private MediaRouter2 router;
     private String pendingRoute;
     private ConnectivityDetails connectivity;
@@ -29,9 +31,9 @@ final class ControlDetails implements AutoCloseable {
     private void switchesChanged() { if (!closed) owner.controlStatesChanged(); }
     private final java.util.ArrayList<SwitchRow> switches=new java.util.ArrayList<>();
     void torchChanged() { if (!closed) for (SwitchRow control:switches) if (control.id.equals("torch") && (!control.pending || java.util.Objects.equals(control.current(),control.requested))) control.complete(); }
-    void statesChanged() { if (!closed) for (SwitchRow control:switches) if (!control.pending && !control.id.equals("torch")) control.complete(); }
-    void stateChanged(String id) { if (!closed) for (SwitchRow control:switches) if (!control.pending && control.id.equals(id)) control.complete(); }
-    void statesInvalidated() { if (!closed) for (SwitchRow control:switches) { if (control.id.equals("rotation") || control.id.equals("location")) control.complete(); else if (!control.id.equals("torch")) { control.requestGeneration++; control.finish(null,"状态未知 · 请刷新连接状态"); } } }
+    void statesChanged() { if (!closed) { for (SwitchRow control:switches) if (!control.pending && !control.id.equals("torch")) control.complete(); if (rotationControls != null) rotationControls.refresh(); } }
+    void stateChanged(String id) { if (!closed) { for (SwitchRow control:switches) if (!control.pending && control.id.equals(id)) control.complete(); if (id.equals("rotation") && rotationControls != null) rotationControls.refresh(); } }
+    void statesInvalidated() { if (!closed) { for (SwitchRow control:switches) { if (control.id.equals("location")) control.complete(); else if (!control.id.equals("torch")) { control.requestGeneration++; control.finish(null,"状态未知 · 请刷新连接状态"); } } if (rotationControls != null) rotationControls.refresh(); } }
     private final Runnable routeTimeout = () -> { if (!closed && pendingRoute != null) { pendingRoute = null; outputs(); note("切换未确认，请使用系统输出选择"); } };
     private final MediaRouter2.RouteCallback routes = new MediaRouter2.RouteCallback() { @Override public void onRoutesUpdated(List<MediaRoute2Info> list) { if (!closed) outputs(); } };
     private final MediaRouter2.ControllerCallback controller = new MediaRouter2.ControllerCallback() { @Override public void onControllerUpdated(MediaRouter2.RoutingController c) { if (!closed) outputs(); } };
@@ -91,7 +93,7 @@ final class ControlDetails implements AutoCloseable {
     void note(String text) { TextView view = Ui.text(context, text, PanelUi.SECONDARY, Ui.MUTED); view.setPadding(0, Ui.dp(context, PanelUi.GAP), 0, Ui.dp(context, PanelUi.GAP)); sheet.content.addView(view, new LinearLayout.LayoutParams(-1, -2)); }
     private void switches(String id) {
         sheet.stableWidth();
-        SwitchRow control=new SwitchRow(id,id.equals("rotation") ? "外屏自动旋转" : id.equals("system_controls") ? "内外屏控制中心" : ActionCatalog.label(context,id)); switches.add(control);
+        SwitchRow control=new SwitchRow(id,id.equals("system_controls") ? "内外屏控制中心" : ActionCatalog.label(context,id)); switches.add(control);
     }
     private final class SwitchRow {
         final String id; final LinearLayout line,choices; final TextView status; final GlassToggle toggle; boolean pending; Boolean confirmed,requested; int requestGeneration; final Runnable timeout=() -> { if (pending) finish(null,"状态未确认，请刷新或使用系统设置"); };
@@ -99,16 +101,15 @@ final class ControlDetails implements AutoCloseable {
             this.id=id; line=(LinearLayout)row(title,"状态未知 · 整机开关",R.drawable.ic_ms_tune,this::click); status=(TextView)((LinearLayout)line.getChildAt(1)).getChildAt(1); status.setMinLines(2); status.setMaxLines(2); status.setEllipsize(android.text.TextUtils.TruncateAt.END);
             toggle=new GlassToggle(context,title,current(),this::click); toggle.setTag("detail-switch-"+id); line.addView(toggle); choices=Ui.row(context); choices.setVisibility(View.GONE); choices.addView(PanelUi.button(context,"开启",() -> request(true)),new LinearLayout.LayoutParams(0,-2,1)); choices.addView(PanelUi.button(context,"关闭",() -> request(false)),new LinearLayout.LayoutParams(0,-2,1)); sheet.content.addView(choices); complete();
         }
-        Boolean current() { return id.equals("rotation") ? Boolean.valueOf(owner.rotationAutomatic()) : owner.on(id); }
+        Boolean current() { return owner.on(id); }
         void click() { if (pending || closed) return; if (id.equals("location")) confirmed = current(); if (confirmed==null) { choices.setVisibility(choices.getVisibility()==View.VISIBLE ? View.GONE : View.VISIBLE); return; } request(!confirmed); }
         void request(boolean value) {
             if (pending || closed) return; pending=true; requested=value; int generation=++requestGeneration; Runnable finished=() -> { if (!closed && pending && generation==requestGeneration && line.isAttachedToWindow()) complete(); }; choices.setVisibility(View.GONE); line.setEnabled(false); toggle.setEnabled(false); toggle.pending(value); status.setText("正在切换…"); owner.main.removeCallbacks(timeout); owner.main.postDelayed(timeout,4000);
-            if (id.equals("rotation")) { if (owner.rotationAutomatic()!=value) owner.toggleRotation(); complete(); }
-            else if (id.equals("system_controls")) owner.setSystemControls(value ? 1 : 0,finished);
+            if (id.equals("system_controls")) owner.setSystemControls(value ? 1 : 0,finished);
             else if (id.equals("torch")) owner.setTorch(value);
             else owner.setSwitch(id,value,finished);
         }
-        void complete() { Boolean state=current(); finish(state,(state==null ? "状态未知 · 请选择开启或关闭" : state ? "已开启" : "已关闭")+(id.equals("rotation") ? " · 所选外屏" : " · 整机开关")); }
+        void complete() { Boolean state=current(); finish(state,(state==null ? "状态未知 · 请选择开启或关闭" : state ? "已开启" : "已关闭")+" · 整机开关"); }
         void finish(Boolean state,String message) { if (closed) return; owner.main.removeCallbacks(timeout); pending=false; confirmed=state; line.setEnabled(true); toggle.setEnabled(true); toggle.state(state); status.setText(message); }
     }
     View row(String title, String subtitle, int icon, Runnable action) {
@@ -146,16 +147,13 @@ final class ControlDetails implements AutoCloseable {
             if (active.getSelectedRoutes().isEmpty()) note("没有可读取的本机输出"); note("投屏等远程会话请用系统选择器");
         } catch (RuntimeException e) { note("媒体路由暂不可用"); }
     }
-    @android.annotation.SuppressLint("WrongConstant") // Four validated Surface rotation values, indexed 0..3.
     private void rotation() {
         sheet.compactWidth(ControlRotationTabs.WIDTH+6*PanelUi.INSET,1);
-        switches("rotation");
+        sheet.stableWidth();
         // The pressed liquid thumb extends beyond the strip; retain the sheet's outer clipping.
         sheet.content.setClipChildren(false); sheet.content.setClipToPadding(false);
-        ControlRotationTabs angles=new ControlRotationTabs(context,owner.display.getRotation(),angle -> { owner.lockRotation(angle); sheet.close(); });
-        LinearLayout.LayoutParams size=new LinearLayout.LayoutParams(-2,Ui.dp(context,PanelUi.SLOT)); size.gravity=android.view.Gravity.CENTER_HORIZONTAL; size.setMargins(Ui.dp(context,PanelUi.INSET),Ui.dp(context,3),Ui.dp(context,PanelUi.INSET),Ui.dp(context,3)); sheet.content.addView(angles,size);
-        note("更改屏幕方向可能会让液态玻璃临时失效,届时请手动重启带有液态玻璃的页面");
-        sheet.footer("交回系统旋转", () -> { owner.releaseRotation(); sheet.close(); });
+        rotationControls = new RotationControls(owner, sheet::close); sheet.content.addView(rotationControls, new LinearLayout.LayoutParams(-1, -2));
+        sheet.footer(RotationControls.RELEASE_LABEL, rotationControls::release);
     }
     @Override public void close() { closed = true; if (watchingSwitches) { CoverApp.bridge(context).removeSwitchObserver(switchChanged); watchingSwitches = false; } for (SwitchRow control:switches) owner.main.removeCallbacks(control.timeout); switches.clear(); if (location != null) { location.close(); location = null; } if (connectivity != null) { connectivity.close(); connectivity = null; } owner.main.removeCallbacks(routeTimeout); if (router != null) { router.unregisterRouteCallback(routes); router.unregisterControllerCallback(controller); router.unregisterTransferCallback(transfers); router = null; } }
 }

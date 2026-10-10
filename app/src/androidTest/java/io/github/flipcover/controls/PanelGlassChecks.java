@@ -349,6 +349,8 @@ final class PanelGlassChecks {
         PanelGlassSession prepared=new PanelGlassSession(activity,activity.getDisplay()); prepared.fixture(source.copy(Bitmap.Config.ARGB_8888,false));
         main(() -> {
             session=prepared; owner=new CoverService(); owner.screenContext=activity; owner.display=activity.getDisplay(); owner.prefs=new Prefs(activity);
+            try { java.lang.reflect.Method attach=android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext",Context.class); attach.setAccessible(true); attach.invoke(owner,activity); }
+            catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
             owner.prefs.data.edit().putInt("panel_columns",columns).putBoolean("panel_blur",true).putBoolean("panel_brightness",true).putBoolean("panel_volume",true).putBoolean("panel_media",true).commit();
             java.util.ArrayList<String> actions=new java.util.ArrayList<>(List.of("wifi","bluetooth","data","torch","dnd","airplane","rotation","screenshot","lock","media","apps","configure"));
             if (columns==5) { for (ActionCatalog.Action action:ActionCatalog.BUILT_INS) if (!actions.contains(action.id())) actions.add(action.id()); while (actions.size()<30) actions.add("app:glass.fixture/Item"+actions.size()); }
@@ -551,8 +553,6 @@ final class PanelGlassChecks {
         FrameLayout host=new FrameLayout(activity); Probe probe=new Probe(activity); PanelGlassSession[] opening={null};
         try {
             main(() -> {
-                try { java.lang.reflect.Method attach=android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext",Context.class); attach.setAccessible(true); attach.invoke(owner,activity); }
-                catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
                 session.close(); owner.display=virtual.getDisplay(); opening[0]=new PanelGlassSession(activity,owner.display); owner.panelGlass=opening[0];
                 setOwnerField("panelHost",host);
                 setOwnerField("dock",new DockView(activity,owner.prefs,owner.placement,0,new DockView.Listener() { public void action(String id) { } public void configure() { } }));

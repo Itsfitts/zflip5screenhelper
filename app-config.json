@@ -21,6 +21,8 @@
       "heightRatio": 0.088,
       "autoHide": true,
       "expandable": false,
+      "clockFollowsRules": false,
+      "autoReturnFirstPage": true,
       "avoidKeyboard": true,
       "haptics": true,
       "gestures": true,
@@ -103,7 +105,7 @@
     "launcher": { "stiffnessScale": 1, "dampingScale": 0.78, "splitWaitMs": 100, "splitDurationMs": 659 },
     "detailSheet": { "stiffness": 350, "scaleXDamping": 0.56, "scaleYDamping": 0.66, "travelDamping": 0.72 },
     "header": { "splitDurationMs": 507 },
-    "dock": { "fusionWaitMs": 300, "fusionDurationMs": 560 },
+    "dock": { "fusionWaitMs": 300, "fusionDurationMs": 560, "autoReturnDelayMs": 5000 },
     "handles": { "fadeInMs": 120, "fadeOutMs": 160, "hideDelayMs": 3000 }
   }
 }

@@ -5,6 +5,47 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class DockGeometryTest {
+    @Test public void disabledUsesNormalPhotoLayoutAndEnabledUsesModifiedPhotoLayout() {
+        for (int rotation : new int[]{1, 3}) for (DockGeometry.Box cut : new DockGeometry.Box[]{new DockGeometry.Box(654, 0, 66, 369), new DockGeometry.Box(0, 379, 66, 369)}) {
+            for (boolean enabled : new boolean[]{false, true}) {
+                DockGeometry.Placement dock = DockGeometry.resolve(720, 748, List.of(cut), 2.125f, (rotation + 3) % 4, .46f, .088f, true, rotation, enabled);
+                boolean left = (rotation == 1) != enabled;
+                assertEquals(left ? DockGeometry.LEFT : DockGeometry.RIGHT, dock.edge());
+                assertTrue(left ? dock.visual().x() < 360 && dock.visual().y() < 374 : dock.visual().x() > 360 && dock.visual().y() > 374);
+                assertEquals(0, dock.touch().intersect(cut).width() * dock.touch().intersect(cut).height());
+            }
+        }
+        DockGeometry.Box cut = new DockGeometry.Box(379, 654, 369, 66);
+        assertEquals(DockGeometry.resolve(748, 720, List.of(cut), 2.125f, 3, .46f, .088f, true), DockGeometry.resolve(748, 720, List.of(cut), 2.125f, 3, .46f, .088f, true, 0, false));
+        cut = new DockGeometry.Box(0, 0, 369, 66);
+        assertEquals(DockGeometry.resolve(748, 720, List.of(cut), 2.125f, 1, .46f, .088f, true), DockGeometry.resolve(748, 720, List.of(cut), 2.125f, 1, .46f, .088f, true, 2, false));
+    }
+    @Test public void reversedLandscapeMovesMeasuredTailToOppositeCornerWithoutMovingCutout() {
+        for (DockGeometry.Box cut : new DockGeometry.Box[]{new DockGeometry.Box(654, 0, 66, 369), new DockGeometry.Box(0, 379, 66, 369)}) {
+            List<DockGeometry.Box> cutouts = List.of(cut);
+            DockGeometry.Placement normal = DockGeometry.resolve(720, 748, cutouts, 2.125f, 0, .46f, .088f, true);
+            DockGeometry.Placement reversed = DockGeometry.resolve(720, 748, cutouts, 2.125f, 0, .46f, .088f, true, -1, true);
+            assertEquals((normal.edge() + 2) % 4, reversed.edge());
+            assertEquals(720 - normal.visual().right(), reversed.visual().x()); assertEquals(748 - normal.visual().bottom(), reversed.visual().y());
+            assertEquals(normal.visual().width(), reversed.visual().width()); assertEquals(normal.visual().height(), reversed.visual().height());
+            assertEquals(720 - normal.touch().right(), reversed.touch().x()); assertEquals(748 - normal.touch().bottom(), reversed.touch().y());
+            assertEquals(0, reversed.touch().intersect(cut).width() * reversed.touch().intersect(cut).height());
+            DockGeometry.Box content = DockGeometry.panelContent(reversed, 720, 748, cutouts);
+            assertEquals(0, content.intersect(cut).width() * content.intersect(cut).height());
+            assertEquals(cut, cutouts.get(0));
+            assertEquals(normal, DockGeometry.resolve(720, 748, cutouts, 2.125f, 0, .46f, .088f, true, -1, false));
+        }
+    }
+    @Test public void reversedManualCornersStayInsideRealCutoutSafeArea() {
+        DockGeometry.Box cut = new DockGeometry.Box(654, 0, 66, 369);
+        for (int corner = 0; corner < 4; corner++) {
+            DockGeometry.Placement normal = DockGeometry.resolve(720, 748, List.of(), 2.125f, corner, .46f, .088f, false);
+            DockGeometry.Placement reversed = DockGeometry.resolve(720, 748, List.of(cut), 2.125f, corner, .46f, .088f, false, -1, true);
+            assertEquals((normal.edge() + 2) % 4, reversed.edge());
+            assertEquals(0, reversed.visual().intersect(cut).width() * reversed.visual().intersect(cut).height());
+            assertTrue(reversed.visual().x() >= 0 && reversed.visual().y() >= 0 && reversed.visual().right() <= 720 && reversed.visual().bottom() <= 748);
+        }
+    }
     @Test public void compactEntryKeepsArtworkAndEdgeOriginWhileReleasingOnlyItsLowerTail() {
         DockGeometry.Box camera = new DockGeometry.Box(0, 0, 369, 66);
         for (float density : new float[]{1.5f, 2.125f, 2.75f}) for (int scale : new int[]{50, 100, 150}) {

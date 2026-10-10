@@ -53,6 +53,8 @@
 
 `defaults.dock.expandable` 为快捷栏收起展开模式的默认值，当前为 `false`（常驻模式）。运行时由 `Prefs.dockExpandable` 读取 `dock_expandable` 用户偏好，设置开关和白条长按共用它；布局备份中的 `dockExpandable` 字段只接受布尔值，旧备份缺少时使用常驻模式。当前展开状态仅属于亮屏会话，不写入配置文件或备份。
 
+`defaults.dock.autoReturnFirstPage` 为停止操作后自动回到第一页的默认开关，当前为 `true`；用户偏好为 `dock_auto_return_first_page`。`motion.dock.autoReturnDelayMs` 管理等待时长，当前为5000毫秒，合法范围1000–60000毫秒。设置页说明与快捷栏计时共用生成常量；配置及布局备份保存开关，不保存当前页或计时状态，旧备份缺少开关时使用配置默认值。
+
 ## 设置界面大小
 
 `appearance.settings.baseScale` 为主设置页面及自有设置弹窗的基础缩放，默认 `0.7`（整体缩小30%）。`defaults.settings.scale` 为用户缩放默认值 `100`，软件内可调70%–130%，实际缩放为基础值乘以用户百分比。组合卡片配置及其全部子页保持既有100%尺寸；系统选择器、运行时浮窗和显示密度不参与。用户的设置缩放仅本机保存，不随运行时布局或配置备份迁移。

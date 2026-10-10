@@ -22,6 +22,7 @@ final class Panels {
     private final Map<String, Tile> buttons = new HashMap<>();
     private LinearLayout body;
     private LevelSlider brightness;
+    private RotationControls rotationControls;
     private Integer confirmedBrightness;
     private NotificationCenterView notificationCenter;
     private int controlViewportHeight;
@@ -230,6 +231,7 @@ final class Panels {
         }
     }
     void updateStates() {
+        if (rotationControls != null) rotationControls.refresh();
         for (Map.Entry<String, Tile> entry : buttons.entrySet()) {
             String id = entry.getKey();
             if (preview) { entry.getValue().state(null); continue; }
@@ -265,27 +267,10 @@ final class Panels {
         owner.showDetails(id,null);
     }
     private void rotation() {
-        String[] names = {"正向", "向右", "倒置", "向左"};
-        for (int rowIndex = 0; rowIndex < 2; rowIndex++) {
-            LinearLayout row = Ui.row(context);
-            for (int i = rowIndex * 2; i < rowIndex * 2 + 2; i++) {
-                int target = i; boolean active = owner.display.getRotation() == i;
-                Tile tile = new Tile("rotation", () -> owner.lockRotation(target));
-                tile.setMinimumHeight(Ui.dp(context, 52)); tile.setPadding(Ui.dp(context, 4), Ui.dp(context, 6), Ui.dp(context, 4), Ui.dp(context, 6));
-                tile.face.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(context, 22), Ui.dp(context, 22)));
-                tile.icon.setLayoutParams(new FrameLayout.LayoutParams(Ui.dp(context, 20), Ui.dp(context, 20), Gravity.CENTER));
-                ((LinearLayout.LayoutParams) tile.label.getLayoutParams()).topMargin = Ui.dp(context, 3);
-                tile.detail.setTextSize(9); tile.detail.setMinHeight(Ui.dp(context, 12)); tile.detail.setPadding(0, Ui.dp(context, 1), 0, 0);
-                tile.icon.setImageDrawable(Ui.icon(context, R.drawable.ic_ms_phone_android, active ? Ui.ON_ACTIVE : Ui.TEXT)); tile.icon.setRotation(i * 90);
-                tile.label.setText(names[i] + " · " + i * 90 + "°"); tile.label.setTextSize(12); tile.label.setTextColor(active ? Ui.ON_ACTIVE : Ui.TEXT);
-                tile.detail.setText(active ? "当前方向" : names[i]); tile.detail.setTextColor(active ? Ui.ON_ACTIVE : Ui.MUTED);
-                tile.setSelected(active); tile.setBackground(Ui.ripple(context, active ? Ui.ACTIVE : Ui.SURFACE, 20));
-                tile.setContentDescription(names[i] + "，" + i * 90 + "度" + (active ? "，当前方向" : "")); Ui.weighted(row, tile);
-            }
-            Ui.add(body, row);
-        }
-        Ui.add(body, Ui.button(context, "交回系统旋转控制", owner::releaseRotation));
-        Ui.add(body, Ui.text(context, "以系统方向为准。请关闭其他工具的自动旋转，避免互相覆盖。", 11, Ui.MUTED));
+        body.setClipChildren(false); body.setClipToPadding(false);
+        rotationControls = new RotationControls(owner, () -> { });
+        body.addView(rotationControls, new LinearLayout.LayoutParams(-1, -2));
+        Ui.add(body, PanelUi.button(context, RotationControls.RELEASE_LABEL, rotationControls::release));
     }
     private void notifications() {
         body.setClipChildren(false);

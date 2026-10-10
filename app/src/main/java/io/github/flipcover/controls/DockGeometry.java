@@ -240,6 +240,12 @@ public final class DockGeometry {
     private record Lane(Box box, int edge) { }
     public static Placement resolve(int width, int height, List<Box> cutouts, float density, int corner,
                                     float widthRatio, float heightRatio, boolean automatic) {
+        return resolve(width, height, cutouts, density, corner, widthRatio, heightRatio, automatic, -1, false);
+    }
+    /** Reverse the dock's corner only; cutouts stay in their real display coordinates. */
+    public static Placement resolve(int width, int height, List<Box> cutouts, float density, int corner,
+                                    float widthRatio, float heightRatio, boolean automatic, int rotation, boolean reversed) {
+        if (reversed) corner = (corner + 2) % 4;
         int margin = Math.max(4, Math.round(3 * density));
         int left = margin, top = margin, right = width - margin, bottom = height - margin;
         List<Lane> lanes = new ArrayList<>();
@@ -271,6 +277,21 @@ public final class DockGeometry {
             int thickness = candidate.edge % 2 == 0 ? candidate.box.height : candidate.box.width;
             if (length >= 90 * density && thickness >= 14 * density && (lane == null || candidate.box.width * candidate.box.height > lane.box.width * lane.box.height)) lane = candidate;
         }
+        boolean oppositeLane = reversed;
+        if (lane != null && lane.edge % 2 == 1 && (rotation == 1 || rotation == 3)) {
+            // Normal layout is 90° left/top and 270° right/bottom, regardless of
+            // which side a modified device reports as its usable cutout tail.
+            int normalEdge = rotation == 1 ? LEFT : RIGHT;
+            int desiredEdge = reversed ? (normalEdge + 2) % 4 : normalEdge;
+            oppositeLane = lane.edge != desiredEdge;
+        }
+        if (oppositeLane && lane != null) {
+            Box original = lane.box;
+            Box opposite = new Box(width - original.right(), height - original.bottom(), original.width(), original.height());
+            // Unusual multi-cutout displays may obstruct the opposite corner as well.
+            for (Box cutout : cutouts) { Box overlap = opposite.intersect(cutout); if (overlap.width() > 0 && overlap.height() > 0) { opposite = opposite.intersect(new Box(left, top, Math.max(0, right - left), Math.max(0, bottom - top))); break; } }
+            lane = opposite.width() > margin * 2 && opposite.height() > margin * 2 ? new Lane(opposite, (lane.edge + 2) % 4) : null;
+        }
         boolean measured = lane != null;
         int edge = (corner + 1) % 4;
         Box visual;
@@ -296,10 +317,10 @@ public final class DockGeometry {
             int visualWidth = edge % 2 == 0 ? length : thickness;
             int visualHeight = edge % 2 == 0 ? thickness : length;
             // When a cutout exists but no usable tail is reported, stay inside its safe rectangle.
-            int safeLeft = automatic && !cutouts.isEmpty() ? left : margin;
-            int safeTop = automatic && !cutouts.isEmpty() ? top : margin;
-            int safeRight = automatic && !cutouts.isEmpty() ? right : width - margin;
-            int safeBottom = automatic && !cutouts.isEmpty() ? bottom : height - margin;
+            int safeLeft = (automatic || reversed) && !cutouts.isEmpty() ? left : margin;
+            int safeTop = (automatic || reversed) && !cutouts.isEmpty() ? top : margin;
+            int safeRight = (automatic || reversed) && !cutouts.isEmpty() ? right : width - margin;
+            int safeBottom = (automatic || reversed) && !cutouts.isEmpty() ? bottom : height - margin;
             visualWidth = Math.min(visualWidth, safeRight - safeLeft);
             visualHeight = Math.min(visualHeight, safeBottom - safeTop);
             visual = new Box(corner == 0 || corner == 3 ? safeLeft : safeRight - visualWidth,

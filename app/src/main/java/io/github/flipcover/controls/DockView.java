@@ -49,6 +49,8 @@ public final class DockView extends InputSurface {
     private boolean previouslyArmed, touchMoved;
     private View pressedButton;
     private final Runnable hold;
+    private boolean touchActive;
+    private final Runnable autoReturn = this::returnToFirstPage;
     public DockView(Context context, Prefs prefs, DockGeometry.Placement placement, int initialPage, Listener listener) {
         this(context, prefs, placement, initialPage, listener, false);
     }
@@ -134,9 +136,10 @@ public final class DockView extends InputSurface {
         actionButtons.put(button, id);
         boolean launcher = id.equals("app_hub") || id.equals("app_dock");
         if (launcher) launcherButtons.add(button);
-        button.setOnClickListener(v -> { if (!launcher || !launcherDisabled) listener.action(id); });
+        button.setOnClickListener(v -> { scheduleAutoReturn(); if (!launcher || !launcherDisabled) listener.action(id); });
         return button;
     }
+    boolean launcherDisabled() { return launcherDisabled; }
     void launcherDisabled(boolean disabled) {
         if (launcherDisabled == disabled) return;
         launcherDisabled = disabled;
@@ -164,15 +167,25 @@ public final class DockView extends InputSurface {
     public int page() { return page; }
     public boolean compact() { return compact; }
     void modeChanged() { setStateDescription(prefs.dockExpandable() ? "收起展开模式" : "常驻模式"); }
-    void geometryChanged() { endTouch(); gesture.reset(); track.animate().cancel(); snap(false); }
+    void geometryChanged() { touchActive = false; endTouch(); gesture.reset(); track.animate().cancel(); snap(false); }
+    void scheduleAutoReturn() {
+        if (track == null) return;
+        removeCallbacks(autoReturn);
+        if (prefs.dockAutoReturnFirstPage() && page > 0 && !touchActive && !compact && isAttachedToWindow() && isShown() && getWindowVisibility() == VISIBLE) postDelayed(autoReturn, BuildConfig.MOTION_DOCK_AUTO_RETURN_DELAY_MS);
+    }
+    private void returnToFirstPage() {
+        if (!prefs.dockAutoReturnFirstPage() || touchActive || compact || !isAttachedToWindow() || !isShown() || getWindowVisibility() != VISIBLE) return;
+        page = 0; snap(true);
+    }
     /** Clock-page toggles keep this full-sized window below the moving arrow. */
     void compact(boolean value) {
         if (compact == value) return;
-        endTouch(); track.animate().cancel(); compact = value; snap(false);
+        touchActive = false; endTouch(); track.animate().cancel(); compact = value; snap(false);
         background.setVisibility(value ? GONE : VISIBLE); viewport.setVisibility(value ? GONE : VISIBLE); fixed.setVisibility(value ? GONE : VISIBLE);
         dots.invalidate(); setVisibility(value ? GONE : VISIBLE);
     }
     private void begin(MotionEvent event) {
+        touchActive = true; removeCallbacks(autoReturn);
         endTouch(); track.animate().cancel(); gesture.reset();
         startTranslation = placement.vertical() ? track.getTranslationY() : track.getTranslationX();
         startX = event.getX(); startY = event.getY(); previouslyArmed = false; touchMoved = false; touchMode = TouchMode.PENDING;
@@ -227,6 +240,7 @@ public final class DockView extends InputSurface {
             case MotionEvent.ACTION_DOWN -> begin(event);
             case MotionEvent.ACTION_MOVE -> move(event);
             case MotionEvent.ACTION_UP -> {
+                touchActive = false;
                 move(event); View clicked = touchMode == TouchMode.PENDING && !touchMoved ? pressedButton : null;
                 if (touchMode == TouchMode.PAGING) {
                     switch (gesture.finish()) {
@@ -238,7 +252,8 @@ public final class DockView extends InputSurface {
                 endTouch(); snap(true);
                 if (clicked != null) { performClick(); clicked.performClick(); }
             }
-            case MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> { endTouch(); snap(true); }
+            case MotionEvent.ACTION_CANCEL -> { touchActive = false; endTouch(); snap(true); }
+            case MotionEvent.ACTION_POINTER_DOWN -> { endTouch(); snap(true); }
         }
         return true;
     }
@@ -260,6 +275,7 @@ public final class DockView extends InputSurface {
         } else if (placement.vertical()) track.setTranslationY(-page * extent); else track.setTranslationX(-page * extent);
         for (int i = 0; i < pages.size(); i++) pages.get(i).setImportantForAccessibility(i == page ? IMPORTANT_FOR_ACCESSIBILITY_AUTO : IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         dots.invalidate(); setContentDescription("快捷栏，第 " + (page + 1) + " 页，共 " + pages.size() + " 页；点击按钮，滑动翻页，长按图标配置；双白条滑入打开面板，白条可见时长按切换常驻／收起展开模式"); modeChanged();
+        scheduleAutoReturn();
     }
     @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info); info.setScrollable(true);
@@ -270,6 +286,7 @@ public final class DockView extends InputSurface {
         info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_dock, prefs.dockExpandable() ? "切换为常驻模式" : "切换为收起展开模式"));
     }
     @Override public boolean performAccessibilityAction(int action, Bundle args) {
+        scheduleAutoReturn();
         if (action == R.id.toggle_dock) { listener.toggleMode(); return true; }
         if (action == R.id.open_notifications) { listener.action("notification_list"); return true; }
         if (action == R.id.open_controls) { listener.action("controls"); return true; }
@@ -277,5 +294,23 @@ public final class DockView extends InputSurface {
         if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) { page = Math.max(0, page - 1); snap(true); return true; }
         return super.performAccessibilityAction(action, args);
     }
-    @Override protected void onDetachedFromWindow() { endTouch(); track.animate().cancel(); super.onDetachedFromWindow(); }
+    @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); scheduleAutoReturn(); }
+    @Override protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (track == null) return;
+        if (!isShown()) { touchActive = false; endTouch(); track.animate().cancel(); }
+        scheduleAutoReturn();
+    }
+    @Override protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (track == null) return;
+        if (visibility != VISIBLE) { touchActive = false; endTouch(); track.animate().cancel(); }
+        scheduleAutoReturn();
+    }
+    @Override public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if (focus) scheduleAutoReturn();
+        else { touchActive = false; endTouch(); removeCallbacks(autoReturn); }
+    }
+    @Override protected void onDetachedFromWindow() { touchActive = false; removeCallbacks(autoReturn); endTouch(); track.animate().cancel(); super.onDetachedFromWindow(); }
 }
