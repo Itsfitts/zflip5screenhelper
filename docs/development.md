@@ -72,6 +72,8 @@ gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
 横屏布局兼容使用 `DockGeometryTest` 检查快捷栏对角换边、自动／手动定位和真实缺口避让；`-e scenario rotation-reverse` 在可丢弃模拟器四方向检查独立页面与控制详情的开关、方向高亮保持、默认关闭、本机持久化、0°／180°布局保持、双白条保持原保存侧及配置导入导出隔离。白条回归通过生产 `resolveContentGeometry` 覆盖横屏左／右顶部与开关两态。切换开关不下发旋转；改装三星物理外屏上的实际停靠、触摸和导航避让仍需真机验收。
 
+`unmeasuredLandscapeKeepsButtonsInClearTailBesidePagingDots` 覆盖90°／270°手动定位及密度导致自动尾部未入选的回退路径：目标区域未碰到摄像头时，按钮应留在突出区域，翻页点仍保持原来的物理边缘距离。此检查使用合成缺口验证几何，不代表已确认其他手机的固件根因；真机还需核对实际缺口、导航避让设置及按钮触摸。
+
 完成工作应有成功构建和与改动相关的本地检查。涉及设备测试时先构建设备端测试包：
 
 ```sh

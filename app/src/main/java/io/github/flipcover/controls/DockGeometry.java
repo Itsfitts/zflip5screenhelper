@@ -316,11 +316,19 @@ public final class DockGeometry {
             int thickness = Math.round(Math.min(width, height) * heightRatio);
             int visualWidth = edge % 2 == 0 ? length : thickness;
             int visualHeight = edge % 2 == 0 ? thickness : length;
-            // When a cutout exists but no usable tail is reported, stay inside its safe rectangle.
-            int safeLeft = (automatic || reversed) && !cutouts.isEmpty() ? left : margin;
-            int safeTop = (automatic || reversed) && !cutouts.isEmpty() ? top : margin;
-            int safeRight = (automatic || reversed) && !cutouts.isEmpty() ? right : width - margin;
-            int safeBottom = (automatic || reversed) && !cutouts.isEmpty() ? bottom : height - margin;
+            Box requested = new Box(corner == 0 || corner == 3 ? margin : width - margin - visualWidth,
+                corner < 2 ? margin : height - margin - visualHeight, visualWidth, visualHeight);
+            // A camera cutout elsewhere on this edge must not push buttons away
+            // from the paging dots. Use the inset rectangle only on real overlap.
+            boolean obstructed = false;
+            if (automatic || reversed) for (Box cutout : cutouts) {
+                Box overlap = requested.intersect(cutout);
+                if (overlap.width() > 0 && overlap.height() > 0) { obstructed = true; break; }
+            }
+            int safeLeft = obstructed ? left : margin;
+            int safeTop = obstructed ? top : margin;
+            int safeRight = obstructed ? right : width - margin;
+            int safeBottom = obstructed ? bottom : height - margin;
             visualWidth = Math.min(visualWidth, safeRight - safeLeft);
             visualHeight = Math.min(visualHeight, safeBottom - safeTop);
             visual = new Box(corner == 0 || corner == 3 ? safeLeft : safeRight - visualWidth,

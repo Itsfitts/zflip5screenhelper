@@ -46,6 +46,28 @@ public class DockGeometryTest {
             assertTrue(reversed.visual().x() >= 0 && reversed.visual().y() >= 0 && reversed.visual().right() <= 720 && reversed.visual().bottom() <= 748);
         }
     }
+    @Test public void unmeasuredLandscapeKeepsButtonsInClearTailBesidePagingDots() {
+        for (int rotation : new int[]{1, 3}) for (boolean automatic : new boolean[]{false, true}) {
+            // A high density can reject the automatic lane's minimum length;
+            // the fallback still fits the real camera-free tail.
+            float density = automatic ? 4.5f : 2.125f;
+            DockGeometry.Box cut = rotation == 1 ? new DockGeometry.Box(654, 0, 66, 369) : new DockGeometry.Box(0, 379, 66, 369);
+            DockGeometry.Placement resolved = DockGeometry.resolve(720, 748, List.of(cut), density, (rotation + 3) % 4, .46f, .088f, automatic, rotation, true);
+            DockGeometry.Placement dock = DockGeometry.edgeTouch(resolved, 720, 748);
+            DockGeometry.Chrome chrome = DockGeometry.chrome(dock, density);
+            assertFalse(dock.measured());
+            int iconLeft = dock.touch().x() + chrome.icons().x(), iconRight = iconLeft + chrome.icons().width();
+            int iconCenter = (iconLeft + iconRight) / 2;
+            assertTrue("buttons belong in the camera-free protrusion", rotation == 1 ? iconCenter >= cut.x() : iconCenter <= cut.right());
+            assertEquals(0, dock.visual().intersect(cut).width() * dock.visual().intersect(cut).height());
+            // Pagination stays at its existing physical-edge inset.
+            int dotEdge = dock.touch().x() + (rotation == 1 ? chrome.firstHandle().right() : chrome.firstHandle().x());
+            assertEquals(Math.round(5 * density), rotation == 1 ? 720 - dotEdge : dotEdge);
+            DockGeometry.Placement clearEdge = DockGeometry.edgeTouch(DockGeometry.resolve(720, 748, List.of(), density, (rotation + 3) % 4, .46f, .088f, automatic, rotation, true), 720, 748);
+            assertEquals(clearEdge.visual(), dock.visual());
+            assertEquals(DockGeometry.chrome(clearEdge, density).icons(), chrome.icons());
+        }
+    }
     @Test public void compactEntryKeepsArtworkAndEdgeOriginWhileReleasingOnlyItsLowerTail() {
         DockGeometry.Box camera = new DockGeometry.Box(0, 0, 369, 66);
         for (float density : new float[]{1.5f, 2.125f, 2.75f}) for (int scale : new int[]{50, 100, 150}) {
