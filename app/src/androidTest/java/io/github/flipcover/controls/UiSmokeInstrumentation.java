@@ -63,6 +63,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("control-motion")) { result.putString("result", new ControlMotionChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("control-dashboard")) { result.putString("result", ControlDashboardChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("interface-card")) { result.putString("result", new InterfaceCardChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("panel-swipe")) { result.putString("result", new InterfaceCardChecks(this).runPanelSwipes()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("cover-home")) { result.putString("result", new InterfaceCardChecks(this).runHome()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("task-fullscreen")) { result.putString("result", new InterfaceCardChecks(this).runFullscreenTasks()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-header-split")) { result.putString("result", new InterfaceCardChecks(this).runHeaderSplit()); finish(Activity.RESULT_OK, result); return; }

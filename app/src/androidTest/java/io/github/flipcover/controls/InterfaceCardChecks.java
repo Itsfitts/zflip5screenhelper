@@ -766,6 +766,57 @@ final class InterfaceCardChecks {
             return "PASS: " + assertions + " blank-tap assertions; controls and notifications, both entry edges, scroll whitespace, animation, release and gesture exclusions; emulator only";
         } finally { main(() -> { clear(); activity.finish(); }); }
     }
+    private void hostTouch(long at, long elapsed, int action, float x, float y) {
+        android.view.MotionEvent event = android.view.MotionEvent.obtain(at, at + elapsed, action, x, y, 0);
+        ((View) field("panelHost")).dispatchTouchEvent(event); event.recycle();
+    }
+    private String touchPath(View view, float x, float y) {
+        String path = view.getClass().getSimpleName() + ":" + view.canScrollHorizontally(-1) + "/" + view.canScrollHorizontally(1);
+        if (view instanceof android.view.ViewGroup group) for (int i = group.getChildCount() - 1; i >= 0; i--) { View child = group.getChildAt(i); float cx = x + group.getScrollX() - child.getX(), cy = y + group.getScrollY() - child.getY(); if (child.getVisibility() == View.VISIBLE && cx >= 0 && cy >= 0 && cx < child.getWidth() && cy < child.getHeight()) return path + "/" + touchPath(child, cx, cy); }
+        return path;
+    }
+    String runPanelSwipes() {
+        activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        prefs = new Prefs(activity); real = activity.getSystemService(WindowManager.class);
+        CoverService previous = CoverService.instance;
+        android.media.ImageReader image = android.media.ImageReader.newInstance(720, 748, android.graphics.PixelFormat.RGBA_8888, 2);
+        android.hardware.display.VirtualDisplay display = activity.getSystemService(android.hardware.display.DisplayManager.class).createVirtualDisplay("panel-swipe-check", 720, 748, 340, image.getSurface(), android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION);
+        require(display != null && display.getDisplay().getDisplayId() > 0, "explicit secondary display for the production identity gate");
+        main(() -> { prefs.data.edit().clear().putBoolean("enabled", true).putInt("display", display.getDisplay().getDisplayId()).putBoolean("panel_blur", false).putBoolean("haptics", false).commit(); activity.setContentView(new FrameLayout(activity)); });
+        try {
+            for (int edge : new int[]{DockGeometry.TOP, DockGeometry.BOTTOM}) for (String page : new String[]{"controls", "notifications"}) for (int outcome = 0; outcome < 3; outcome++) {
+                int ending = outcome, direction = page.equals("controls") ? 1 : -1;
+                main(() -> { setup(edge); owner.display = display.getDisplay(); CoverService.instance = owner; owner.showPanel(page); finish(); });
+                main(() -> {
+                    InterfaceCard original = active(); PanelHost host = (PanelHost) field("panelHost"); int adds = windowAdds, removes = windowRemovals;
+                    float x = frame.width() * (direction > 0 ? .15f : .85f), y = Ui.dp(activity, 50); long at = SystemClock.uptimeMillis();
+                    hostTouch(at, 0, android.view.MotionEvent.ACTION_DOWN, x, y);
+                    hostTouch(at, 8, android.view.MotionEvent.ACTION_MOVE, x + direction, y);
+                    require(active() == original && field("panelPush") == null && host.getChildCount() == 1, "DOWN and tiny MOVE never create or mount a destination");
+                    hostTouch(at, 40, android.view.MotionEvent.ACTION_MOVE, x + direction * frame.width() * .2f, y); freeze();
+                    InterfaceCard destination = active();
+                    require(destination != original && host.swiping() && host.getChildCount() == 2, "first confirmed horizontal MOVE lazily creates exactly one destination before UP: page=" + page + ", changed=" + (destination != original) + ", swiping=" + host.swiping() + ", children=" + host.getChildCount() + ", displayState=" + display.getDisplay().getState() + ", selected=" + prefs.displayId() + ", dragging=" + field("panelDragging") + ", path=" + touchPath(host, x, y));
+                    require(field("panelPage").equals(page.equals("controls") ? "notifications" : "controls"), "destination matches left notification/right control ordering");
+                    require((((WindowManager.LayoutParams) host.getLayoutParams()).flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0, "persistent host continues receiving the same finger sequence");
+                    hostTouch(at, 80, android.view.MotionEvent.ACTION_MOVE, x + direction * frame.width() * .45f, y);
+                    require(Math.abs(destination.getTranslationX() + direction * frame.width() * .55f) < 2 && destination.getTranslationY() == 0, "destination follows horizontal finger travel without vertical motion");
+                    hostTouch(at, 110, android.view.MotionEvent.ACTION_MOVE, x + direction * frame.width() * .3f, y);
+                    require(Math.abs(destination.getTranslationX() + direction * frame.width() * .7f) < 2, "reverse drag follows the same destination instead of reconstructing it");
+                    require(windowAdds == adds && windowRemovals == removes && active() == destination, "MOVE never creates another window or destination");
+                    if (ending == 2) hostTouch(at, 150, android.view.MotionEvent.ACTION_MOVE, x + direction * frame.width(), y);
+                    hostTouch(at, 210, ending == 0 ? android.view.MotionEvent.ACTION_UP : android.view.MotionEvent.ACTION_CANCEL, x + direction * frame.width() * (ending == 2 ? 1 : .3f), y);
+                    finish();
+                    require(!host.swiping() && host.getChildCount() == 1 && (int) field("panelMotionEdge") == edge, "settlement leaves one card and restores vertical dismissal direction");
+                    if (ending == 0) require(active() == destination && original.getParent() == null && original.getChildCount() == 0, "commit releases the outgoing content");
+                    else require(active() == original && destination.getParent() == null && destination.getChildCount() == 0 && original.getTranslationX() == 0, "cancel, including full-width drag, restores the exact original and releases the candidate");
+                    require(windowAdds == adds && windowRemovals == removes, "settlement retains the window surface");
+                    clear();
+                });
+            }
+            assertions += PanelSwipeChecks.run(test, activity);
+            return "PASS: " + assertions + " panel-swipe assertions; lazy creation on MOVE, following/reversal, full-distance cancellation, two entry edges, window reuse, gesture ownership and release; emulator only";
+        } finally { main(() -> { clear(); CoverService.instance = previous; activity.finish(); }); display.release(); image.close(); }
+    }
     String runHome() {
         activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         prefs = new Prefs(activity); real = activity.getSystemService(WindowManager.class);

@@ -114,11 +114,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private int launcherFrameRotation = android.view.Surface.ROTATION_0;
     private record HubPush(AppHubView view, FrameLayout host, InterfaceCard card, PanelGlassSession glass, RecentTasksView tasks, Consumer<Boolean> blurListener, WindowManager blurWindows, float startY, float exitDistance, float progress, int entryEdge, boolean sceneMotion) { }
     private HubPush hubPush;
-    private record PanelPush(LinearLayout view, InterfaceCard card, Panels contents, TextView feedback, String page, PanelGlassSession glass, boolean fallback, Consumer<Boolean> blurListener, android.graphics.Rect padding, float startY, float exitDistance, int edge, float progress, ControlEditorView editor) { }
+    private record PanelPush(LinearLayout view, InterfaceCard card, Panels contents, TextView feedback, String page, PanelGlassSession glass, boolean fallback, Consumer<Boolean> blurListener, android.graphics.Rect padding, float startPosition, float exitDistance, int edge, float progress, ControlEditorView editor) { }
     private PanelPush panelPush;
     private float hubSceneProgress = 1;
     private int hubSceneEdge;
     private boolean panelDragging;
+    private int panelMotionEdge = DockGeometry.BOTTOM;
+    private InterfaceCard panelSwipeCard;
     private float panelProgress = 1;
     private boolean panelPulling, panelTargetOpen = true, panelPullCancelOpen, panelPullFresh;
     private float panelPullStartProgress, panelPullStartDistance, panelPullSourceStartProgress;
@@ -368,6 +370,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         appLaunchGeneration++;
         if (homeClosing || panel == null && hub == null && panelPush == null && hubPush == null) return;
         homeClosing = true;
+        abortPanelSwipe();
         cancelPanelAnimation(); cancelSceneBootstrap();
         finishPanelPush(false); finishHubPush(false); dismissDetails();
         pendingBrightness = null; brightnessSequence++; main.removeCallbacks(drainBrightness);
@@ -904,15 +907,17 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private boolean glassTargetSelected(PanelGlassSession opening) { Display selected=Displays.selected(this,prefs); return selected != null && selected.getDisplayId() == opening.displayId; }
     private static boolean glassPage(String page) { return page.equals("controls") || page.equals("notifications") || page.equals("media") || page.equals("rotation"); }
     void showPanel(String page) { showPanel(page, false); }
-    private void showPanel(String page, boolean dragging) {
+    private void showPanel(String page, boolean dragging) { showPanel(page, dragging, panelEdge()); }
+    private void showPanel(String page, boolean dragging, int motionEdge) {
         if (windows == null || dock == null || homeClosing) return;
         removeDockHandle();
         boolean retainedFallback = panel != null && panelCard == null && panelMemoryFallback && glassPage(page);
         // A failed or pending capture belongs to this opening too; switching pages must not retry it.
         PanelGlassSession retained = panelCard == null && panelGlass != null && panelGlass.matches(display) && glassPage(page) ? panelGlass : null;
-        if (panel != null) beginPanelPush(panelEdge()); else closePanel();
+        if (panel != null) beginPanelPush(motionEdge); else closePanel();
         beginHubPush();
         if (retained != null) retained.clearViews();
+        panelMotionEdge = motionEdge;
         panelMemoryFallback = retainedFallback; panelGlass = retained; panelPage = page; panelDragging = true; panelTargetOpen = !dragging; panelProgress = panelSourceProgress = panelUserProgress = panelSourceUserProgress = panelBridgeOffset = 0;
         buildPanelCard(page, panelFrame, page.equals("controls") && controlStatusBox != null ? Math.max(placement.panel().y(), controlStatusBox.bottom() + Ui.dp(screenContext, 4)) : placement.panel().y());
         LinearLayout openingPanel = panel;
@@ -925,7 +930,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             if (retained != null) openingCard.glass(retained);
             syncCardStatus();
             panelHost.setVisibility(View.VISIBLE);
-            layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            if (!panelSwiping()) layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            else if (panelHost.getLayoutParams() instanceof WindowManager.LayoutParams previous && (previous.flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) layout.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             applyPanelBlur(layout, Build.VERSION.SDK_INT >= 31 && windows.isCrossWindowBlurEnabled());
             windows.updateViewLayout(panelHost, layout); setPanelProgress(panelProgress);
             if (retained == null && !panelMemoryFallback) openingCard.prepareGlass(this, display, prefs, () -> panelCard == openingCard && display != null && openingCard.glass() != null && openingCard.glass().matches(display) && glassTargetSelected(openingCard.glass()) && display.getState() == Display.STATE_ON && !getSystemService(KeyguardManager.class).isKeyguardLocked(), () -> {
@@ -1053,12 +1059,33 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void ensurePanelHost() {
         if (panelHost != null) return;
-        panelHost = inputHost(); panelHost.setClipChildren(true); panelHost.setVisibility(View.INVISIBLE);
+        PanelHost host = new PanelHost(screenContext, new PanelHost.SwipeListener() {
+            @Override public View currentPage() { return !homeClosing && !panelDragging && panelProgress == 1 && controlEditor == null && details == null && (panelPage.equals("controls") || panelPage.equals("notifications")) ? panelCard : null; }
+            @Override public int direction() { return panelPage.equals("controls") ? 1 : -1; }
+            @Override public boolean begin(View source, int direction) {
+                if (source != currentPage() || !currentTaskDisplay(display == null ? -1 : display.getDisplayId())) return false;
+                showPanel(direction > 0 ? "notifications" : "controls", true, direction > 0 ? DockGeometry.LEFT : DockGeometry.RIGHT);
+                panelSwipeCard = panelCard; return panelSwipeCard != null && panelSwipeCard != source;
+            }
+            @Override public void progress(float distance) {
+                if (panelCard != null && panelCard == panelSwipeCard) setPanelProgress(PanelDrag.progress(0, distance, panelMotionExtent()));
+            }
+            @Override public void finish(float distance, float speed, boolean canceled) {
+                if (panelCard == null || panelCard != panelSwipeCard) return;
+                if (panelHost != null && windows != null && panelHost.getLayoutParams() instanceof WindowManager.LayoutParams layout) {
+                    layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                    try { windows.updateViewLayout(panelHost, layout); } catch (RuntimeException failure) { closePanel(); return; }
+                }
+                settlePanel(!canceled && PanelDrag.shouldOpen(distance, panelMotionExtent(), speed, screenContext.getResources().getDisplayMetrics().density));
+            }
+        });
+        configureInput(host, () -> act("back")); host.setHapticFeedbackEnabled(prefs.haptics()); panelHost = host; panelHost.setClipChildren(true); panelHost.setVisibility(View.INVISIBLE);
         WindowManager.LayoutParams layout = parameters(panelFrame); layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         windows.addView(panelHost, layout);
     }
     void closePanel() { closePanel(false); }
     private void closePanel(boolean preserveOutgoing) {
+        abortPanelSwipe();
         stateReadGeneration++; main.removeCallbacks(updateControlStates);
         if (!preserveOutgoing) { finishHubPush(false); finishPanelPush(false); }
         panelMemoryFallback = false;
@@ -1182,21 +1209,25 @@ public final class CoverService extends AccessibilityService implements DisplayM
         return Math.max(1, switch (hubSceneEdge) { case DockGeometry.TOP -> frame.bottom() - panelFrame.y(); case DockGeometry.LEFT -> frame.right() - panelFrame.x(); case DockGeometry.RIGHT -> panelFrame.right() - frame.x(); default -> panelFrame.bottom() - frame.y(); });
     }
     private void setPanelProgress(float value) { setPanelMotion(value, value); }
+    private float panelMotionExtent() { return InterfaceCard.horizontal(panelMotionEdge) ? Math.max(1, panelFrame.width()) : panelExtent(); }
+    private boolean panelSwiping() { return panelHost instanceof PanelHost host && host.swiping(); }
+    private void abortPanelSwipe() { if (panelHost instanceof PanelHost host) host.abortSwipe(); panelSwipeCard = null; }
     private void setPanelMotion(float value, float sourceProgress) {
         panelProgress = Math.max(0, Math.min(1, value)); panelSourceProgress = Math.max(0, Math.min(1, sourceProgress)); if (panel == null) return;
-        float offset = (1 - panelProgress) * panelExtent();
+        float extent = panelMotionExtent(), offset = (1 - panelProgress) * extent;
         float bridge = motionFactor(panelCard);
-        if (panelCard != null) panelCard.enter(panelProgress * bridge, panelEdge(), panelExtent()); else { panel.setTranslationX(0); panel.setTranslationY(panelEdge() == DockGeometry.TOP ? -offset : offset); }
+        if (panelCard != null) panelCard.enter(panelProgress * bridge, panelMotionEdge, extent); else InterfaceCard.translate(panel, panelMotionEdge, offset);
         boolean ready = panelCard == null || panelCard.ready();
         if (hubPush != null && ready && panelHost != null && panelHost.getVisibility() == View.VISIBLE) {
-            float travel = panelSourceProgress * bridge * panelExtent();
-            if (hubPush.card() != null) { if (hubPush.card().push(travel, panelEdge(), panelCard)) finishHubPush(false); }
-            else { hubPush.view().setTranslationY(hubPush.startY() + (panelEdge() == DockGeometry.TOP ? travel : -travel)); if (travel >= hubPush.exitDistance()) finishHubPush(false); }
+            float travel = panelSourceProgress * bridge * extent;
+            if (hubPush.card() != null) { if (hubPush.card().push(travel, panelMotionEdge, panelCard)) finishHubPush(false); }
+            else { hubPush.view().setTranslationY(hubPush.startY() + (panelMotionEdge == DockGeometry.TOP ? travel : -travel)); if (travel >= hubPush.exitDistance()) finishHubPush(false); }
         }
-        if (ready && panelHost != null && panelHost.getVisibility() == View.VISIBLE) pushPanel(panelSourceProgress * bridge * panelExtent());
+        if (ready && panelHost != null && panelHost.getVisibility() == View.VISIBLE) pushPanel(panelSourceProgress * bridge * extent);
     }
     private void beginPanelPull(String page, float distance, float originY) {
         if (controlEditor != null || homeClosing) return;
+        if (panelDragging && InterfaceCard.horizontal(panelMotionEdge)) return;
         // An already open page is idempotent: no rebuild, loss of scroll, or jump to zero.
         if (panel != null && page.equals(panelPage) && !panelDragging && panelProgress >= 1) return;
         boolean continuing = panel != null && page.equals(panelPage);
@@ -1239,7 +1270,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private void startSceneBootstrap(InterfaceCard incoming) { startSceneBootstrap(incoming, true); }
     private void startSceneBootstrap(InterfaceCard incoming, boolean bridgeMotion) {
         if (incoming == null || bootstrapCard == incoming) return;
-        if (incoming == panelCard && !panelPulling && !panelTargetOpen) return;
+        if (incoming == panelCard && !panelPulling && !panelSwiping() && !panelTargetOpen) return;
         cancelSceneBootstrap(); bootstrapCard = incoming; bootstrapMoves = bridgeMotion; incoming.beginEntryCrop(); prepareOutgoingCrop(false);
         java.util.function.Consumer<Float> step = value -> {
             if (incoming != panelCard && incoming != hubCard) return;
@@ -1263,6 +1294,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             panelAnimation = null; panelDragging = false;
             if (!open) { cancelScenePush(); return; }
             finishHubPush(false); finishPanelPush(false);
+            panelSwipeCard = null;
+            panelMotionEdge = panelEdge();
             if (panelCard != null) panelCard.interactive(true);
             if (panelHost == null) return;
             WindowManager.LayoutParams layout = (WindowManager.LayoutParams) panelHost.getLayoutParams(); layout.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -1468,29 +1501,31 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void beginPanelPush(int edge) {
         if (panel == null) return;
+        if (panelSwipeCard != null) abortPanelSwipe();
         finishHubPush(false); finishPanelPush(false); cancelPanelAnimation(); cancelSceneBootstrap(); dismissDetails();
         ControlEditorView outgoingEditor = controlEditor;
         if (controlEditor != null) { controlEditor.cancelDrag(); controlEditor = null; }
         if (panelTintAnimation != null) panelTintAnimation.cancel(); panelTintAnimation = null;
         pendingBrightness = null; brightnessSequence++; main.removeCallbacks(drainBrightness);
         if (Build.VERSION.SDK_INT >= 31 && blurListener != null && windows != null) windows.removeCrossWindowBlurEnabledListener(blurListener);
-        float startY = panelCard == null ? panel.getTranslationY() : panelCard.getTranslationY();
-        float visibleProgress = panelCard == null ? panelProgress : 1 - Math.min(1, Math.abs(startY) / panelExtent());
-        panelPush = new PanelPush(panel, panelCard, panels, feedback, panelPage, panelGlass, panelMemoryFallback, blurListener, new android.graphics.Rect(panelContentPadding), startY, Math.max(1, panelExtent() + (edge == DockGeometry.TOP ? -startY : startY)), edge, visibleProgress, outgoingEditor);
-        if (panelCard != null) panelCard.beginExit(edge, panelExtent()); else if (panel instanceof PanelSurface surface) surface.prepareScenePush();
+        float extent = InterfaceCard.horizontal(edge) ? Math.max(1, panelFrame.width()) : panelExtent();
+        float start = panelCard == null ? InterfaceCard.position(panel, edge) : InterfaceCard.position(panelCard, edge);
+        float visibleProgress = panelCard == null ? panelProgress : 1 - Math.min(1, Math.abs(start) / extent);
+        panelPush = new PanelPush(panel, panelCard, panels, feedback, panelPage, panelGlass, panelMemoryFallback, blurListener, new android.graphics.Rect(panelContentPadding), start, Math.max(1, extent + InterfaceCard.sign(edge) * start), edge, visibleProgress, outgoingEditor);
+        if (panelCard != null) panelCard.beginExit(edge, extent); else if (panel instanceof PanelSurface surface) surface.prepareScenePush();
         panel = null; panelCard = null; panels = null; feedback = null; panelGlass = null; panelBackdrop = null; blurListener = null; panelPage = "";
         panelPulling = panelDragging = false; panelMemoryFallback = false;
         if (panelHost != null && windows != null) try {
             WindowManager.LayoutParams layout = (WindowManager.LayoutParams) panelHost.getLayoutParams();
-            layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            if (!panelSwiping()) layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             layout.flags &= ~(WindowManager.LayoutParams.FLAG_BLUR_BEHIND | WindowManager.LayoutParams.FLAG_DIM_BEHIND); layout.dimAmount = 0;
             if (Build.VERSION.SDK_INT >= 31) layout.setBlurBehindRadius(0); windows.updateViewLayout(panelHost, layout);
         } catch (RuntimeException ignored) { }
     }
     private void pushPanel(float distance) {
         PanelPush outgoing = panelPush; if (outgoing == null) return;
-        if (outgoing.card() != null) { if (outgoing.card().push(distance, outgoing.edge(), panelCard != null ? panelCard : hubCard)) finishPanelPush(false); }
-        else { outgoing.view().setTranslationY(outgoing.startY() + (outgoing.edge() == DockGeometry.TOP ? distance : -distance)); if (distance >= outgoing.exitDistance()) finishPanelPush(false); }
+        if (outgoing.card() != null) { if (outgoing.card().push(distance, outgoing.edge(), panelCard != null ? panelCard : hubCard) && !panelSwiping() && (panelSwipeCard == null || panelTargetOpen)) finishPanelPush(false); }
+        else { InterfaceCard.translate(outgoing.view(), outgoing.edge(), InterfaceCard.sign(outgoing.edge()) * outgoing.startPosition() - distance); if (distance >= outgoing.exitDistance()) finishPanelPush(false); }
     }
     private void finishPanelPush(boolean restore) {
         PanelPush outgoing = panelPush; if (outgoing == null) return; panelPush = null;
@@ -1500,7 +1535,9 @@ public final class CoverService extends AccessibilityService implements DisplayM
             panelGlass = outgoing.glass(); panelMemoryFallback = outgoing.fallback(); panelContentPadding.set(outgoing.padding());
             panelBackdrop = panel.getBackground() instanceof android.graphics.drawable.ColorDrawable color ? color : null;
             blurListener = outgoing.blurListener(); panelProgress = panelSourceProgress = outgoing.progress(); panelTargetOpen = true; panelPulling = panelDragging = false;
-            if (panelCard != null) panelCard.restore(); else panel.setTranslationY(outgoing.startY());
+            if (panelCard != null) panelCard.restore(); else InterfaceCard.translate(panel, outgoing.edge(), InterfaceCard.sign(outgoing.edge()) * outgoing.startPosition());
+            panelMotionEdge = panelEdge();
+            if (panelHost instanceof InputSurface input) input.page("panel:" + panelPage);
             panel.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
             if (Build.VERSION.SDK_INT >= 31 && blurListener != null) windows.addCrossWindowBlurEnabledListener(getMainExecutor(), blurListener);
             if (panelHost != null) { panelHost.setVisibility(View.VISIBLE); WindowManager.LayoutParams layout = parameters(panelFrame); applyPanelBlur(layout, Build.VERSION.SDK_INT >= 31 && windows.isCrossWindowBlurEnabled()); try { windows.updateViewLayout(panelHost, layout); } catch (RuntimeException ignored) { closePanel(); } }
@@ -1995,7 +2032,6 @@ public final class CoverService extends AccessibilityService implements DisplayM
         }
         // Samsung rejects ordinary app launches of its cover home from another app.
         // The authorized, fixed Shizuku operation resumes the native task without a HOME event.
-        message("正在返回三星卡片…");
         CoverApp.bridge(this).run("native_home", target, 0, "", () -> owner == screenContext && currentTaskDisplay(target) && prefs.homeAction().equals("cards"), result -> {
             if (owner != screenContext || !currentTaskDisplay(target) || !prefs.homeAction().equals("cards")) return;
             if (result.ok) launcherAccepted(); else message(result.message);

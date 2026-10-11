@@ -49,10 +49,10 @@ class PanelSurface extends LinearLayout {
         if (multiplePointers) return true;
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
             dispose(); startX = event.getRawX(); startY = event.getRawY(); blocked = false;
-            trace(this, event.getX(), event.getY()); protectedTouch = false;
-            for (View view : hitPath) if (view instanceof LevelSlider || view instanceof ControlScrollView || view instanceof SeekBar || view instanceof EditText || view instanceof ControlEditorView || view instanceof LauncherSidebarView.Content || view.getTag() instanceof String tag && (tag.startsWith("task-card:") || tag.equals("tasks-clear") || tag.equals("tasks-action-glass"))) protectedTouch = true;
+            trace(this, event.getX(), event.getY()); protectedTouch = false; boolean protectedTap = false;
+            for (View view : hitPath) if (view instanceof LevelSlider || view instanceof ControlScrollView || view instanceof SeekBar || view instanceof EditText || view instanceof ControlEditorView || view instanceof LauncherSidebarView.Content || view.getTag() instanceof String tag && (tag.startsWith("task-card:") || tag.equals("tasks-clear") || tag.equals("tasks-action-glass"))) { protectedTouch = true; if (!(view instanceof ControlScrollView)) protectedTap = true; }
             blankX = startX; blankY = startY; blankDown = event.getEventTime();
-            blankTap = blankTapDismissalEnabled() && !protectedTouch && listener.currentProgress() == 1;
+            blankTap = blankTapDismissalEnabled() && !protectedTap && listener.currentProgress() == 1;
             for (View view : hitPath) if (view.isClickable() || view.isLongClickable() || view instanceof NotificationSwipeRow || view instanceof PanelActionSlot) blankTap = false;
             boolean onNotification = false; for (View view : hitPath) if (view instanceof NotificationSwipeRow) onNotification = true;
             View center = findViewWithTag("notification-center"); if (!onNotification && center instanceof NotificationCenterView notifications) notifications.closeActions();
