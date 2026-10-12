@@ -15,12 +15,12 @@ final class RotationControls extends LinearLayout {
     private final ControlRotationTabs angles;
 
     RotationControls(CoverService owner, Runnable dismiss) {
-        super(owner.screenContext); this.owner = owner; this.dismiss = dismiss;
+        super(PanelUi.controlContext(owner.screenContext)); this.owner = owner; this.dismiss = dismiss;
         Context context = getContext(); setOrientation(VERTICAL); setTag("rotation-controls"); setClipChildren(false); setClipToPadding(false);
         Runnable toggleAutomatic = () -> { owner.toggleRotation(); refresh(); };
         LinearLayout automaticRow = PanelUi.row(context, R.drawable.ic_ms_tune, "外屏自动旋转", "", toggleAutomatic);
         LinearLayout words = (LinearLayout) automaticRow.getChildAt(1);
-        status = Ui.text(context, "", PanelUi.SECONDARY, Ui.MUTED); status.setMinLines(2); status.setMaxLines(2); status.setEllipsize(android.text.TextUtils.TruncateAt.END); status.setPadding(0, Ui.dp(context, 2), 0, 0); words.addView(status);
+        status = Ui.text(context, "", PanelUi.SECONDARY, Ui.MUTED); status.setTag("rotation-status"); status.setMinLines(2); status.setMaxLines(2); status.setEllipsize(android.text.TextUtils.TruncateAt.END); status.setPadding(0, Ui.dp(context, 2), 0, 0); words.addView(status);
         automatic = new GlassToggle(context, "外屏自动旋转", owner.rotationAutomatic(), toggleAutomatic); automatic.setTag("detail-switch-rotation"); automaticRow.addView(automatic); addView(automaticRow);
         angles = new ControlRotationTabs(context, owner.display.getRotation(), angle -> { owner.lockRotation(angle); dismiss.run(); });
         LayoutParams size = new LayoutParams(-2, Ui.dp(context, PanelUi.SLOT)); size.gravity = Gravity.CENTER_HORIZONTAL; size.setMargins(Ui.dp(context, PanelUi.INSET), Ui.dp(context, 3), Ui.dp(context, PanelUi.INSET), Ui.dp(context, 3)); addView(angles, size);
@@ -31,7 +31,7 @@ final class RotationControls extends LinearLayout {
         note.setPadding(0, Ui.dp(context, PanelUi.GAP), 0, Ui.dp(context, PanelUi.GAP)); addView(note); refresh();
     }
     void refresh() {
-        boolean enabled = owner.rotationAutomatic(); automatic.state(enabled); status.setText((enabled ? "已开启" : "已关闭") + " · 所选外屏");
+        boolean enabled = owner.rotationAutomatic(); automatic.state(enabled); status.setText(enabled ? "已开启 · 所选外屏 (2秒轮询)" : "已关闭 · 所选外屏");
         reversed.state(owner.prefs.reverseLandscapeRotation()); angles.source(owner.display.getRotation());
     }
     void release() { owner.releaseRotation(); dismiss.run(); }

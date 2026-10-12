@@ -1,0 +1,6 @@
+<resources>
+    <style name="ControlTypography">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+</resources>

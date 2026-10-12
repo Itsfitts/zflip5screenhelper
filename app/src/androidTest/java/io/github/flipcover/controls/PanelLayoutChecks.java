@@ -108,7 +108,9 @@ final class PanelLayoutChecks {
 
     private void mount(boolean preview) {
         main(() -> {
-            detach(); owner = new CoverService(); owner.screenContext = context; owner.prefs = prefs; owner.display = activity.getDisplay();
+            detach(); owner = new CoverService();
+            try { var attach = android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext", Context.class); attach.setAccessible(true); attach.invoke(owner, activity); } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+            owner.screenContext = context; owner.prefs = prefs; owner.display = activity.getDisplay();
             int width = context.getResources().getDisplayMetrics().widthPixels, height = context.getResources().getDisplayMetrics().heightPixels;
             DockGeometry.Placement placement = DockGeometry.edgeTouch(DockGeometry.resolve(width, height, List.of(), context.getResources().getDisplayMetrics().density, prefs.corner(activity.getDisplay().getRotation()), .46f, .088f, false), width, height);
             DockGeometry.Box content = DockGeometry.panelContent(placement, width, height, List.of());
@@ -141,7 +143,7 @@ final class PanelLayoutChecks {
             ViewGroup tile = dashboard.findViewWithTag("control-" + id);
             require(tile != null, "configured action mounted: " + id);
             contained(tile, grid, "tile " + id);
-            int minimumWidth = context.getResources().getConfiguration().fontScale > 1.3f || prefs.panelLabelSize() == 2 || prefs.panelDensity() == 2 ? 48 : 28;
+            int minimumWidth = prefs.panelLabelSize() == 2 || prefs.panelDensity() == 2 ? 48 : 28;
             require(tile.getWidth() >= Ui.dp(context, minimumWidth) - 1 && tile.getHeight() >= Ui.dp(context, 48) - 1, "tile retains chosen compact or large-type width: " + id);
             if (tile.getTop() == 0) { firstRow++; minLeft = Math.min(minLeft, gridScroll.getLeft() + tile.getLeft()); maxRight = Math.max(maxRight, gridScroll.getLeft() + tile.getRight()); }
             gridBottom = gridScroll.getBottom();
@@ -213,7 +215,7 @@ final class PanelLayoutChecks {
                     for (String id : selected) {
                         ViewGroup tile = dashboard.findViewWithTag("control-" + id); require(tile != null, "variable list preserves configured action " + id);
                         contained(tile, grid, "variable-list tile " + id);
-                        int minimumWidth = context.getResources().getConfiguration().fontScale > 1.3f || prefs.panelLabelSize() == 2 || prefs.panelDensity() == 2 ? 48 : 28;
+                        int minimumWidth = prefs.panelLabelSize() == 2 || prefs.panelDensity() == 2 ? 48 : 28;
                         require(tile.getHeight() >= Ui.dp(context, 48) - 1 && tile.getWidth() >= Ui.dp(context, minimumWidth) - 1, "variable list keeps chosen compact or large-type size");
                         if (tile.getTop() == 0) { firstRow++; firstRowRight = Math.max(firstRowRight, tile.getRight()); }
                         TextView label = (TextView) tile.getChildAt(1); contained(label, tile, "variable-list label"); readable(label, "variable-list label");

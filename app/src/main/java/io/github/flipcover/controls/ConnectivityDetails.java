@@ -49,7 +49,7 @@ final class ConnectivityDetails implements AutoCloseable {
     private void scheduleRead() { if (!closed) { if (!bridge.connected()) { read(0); return; } readPending = true; owner.main.removeCallbacks(readLater); owner.main.postDelayed(readLater, 180); } }
 
     ConnectivityDetails(CoverService owner, DetailSheet sheet, ControlDetails rows, String id) {
-        this.owner = owner; this.sheet = sheet; this.rows = rows; this.id = id; context = owner.screenContext; bridge = CoverApp.bridge(context); display = owner.display == null ? -1 : owner.display.getDisplayId();
+        this.owner = owner; this.sheet = sheet; this.rows = rows; this.id = id; context = sheet.getContext(); bridge = CoverApp.bridge(context); display = owner.display == null ? -1 : owner.display.getDisplayId();
     }
     void open() {
         sheet.stableViewport(id.equals("nfc") ? 256 : 312);

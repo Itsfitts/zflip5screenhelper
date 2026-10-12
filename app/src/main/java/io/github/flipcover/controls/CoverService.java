@@ -80,13 +80,17 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private java.util.Set<String> compactApplications = java.util.Set.of();
     private boolean dockAppRulesEnabled;
     private boolean avoidKeyboard;
+    private CoverWindowQuery foregroundQuery;
+    private CoverWindowQuery.Target foregroundTarget;
+    private record WindowEvent(int type, String packageName) { }
+    private final java.util.LinkedHashMap<Integer, WindowEvent> foregroundEvents = new java.util.LinkedHashMap<>();
     private final Runnable settleStatusApplication = () -> { statusVisibility.settle(android.os.SystemClock.uptimeMillis()); syncCardStatus(); };
     private boolean launcherHostFocused;
     private boolean foregroundSceneResolved;
-    private boolean launcherEntryPending, launcherExitPending;
+    private boolean launcherEntryPending, launcherExitPending, launcherForegroundPending;
     private final java.util.ArrayDeque<String> launcherVisibilityTransitions = new java.util.ArrayDeque<>();
     private String launcherVisibilityState = "";
-    private final Runnable settleLauncherEntry = () -> { launcherEntryPending = false; launcherExitPending = false; updateLauncherVisibility(false); };
+    private final Runnable settleLauncherEntry = () -> { launcherEntryPending = false; launcherExitPending = false; launcherForegroundPending = false; updateLauncherVisibility(false); };
     private Boolean keyboardVisible;
     private final Map<Integer, String> windowPackages = new java.util.LinkedHashMap<>(32, .75f, true);
     private LinearLayout panel;
@@ -241,7 +245,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 appLaunchGeneration++;
                 dockVisibility.reset();
                 resetStatusApplication();
-                stopAutomaticRotation();
+                if (automaticRotation != null) automaticRotation.suspend();
                 main.removeCallbacks(restoreFromLauncherCard); pendingLauncherDisplay = -1;
                 main.removeCallbacks(updateDisplay); main.removeCallbacks(settledDisplay);
                 removeWindows(); signature = ""; setStatus("息屏期间已隐藏");
@@ -267,6 +271,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     @Override protected void onServiceConnected() {
         instance = this; prefs = new Prefs(this); automaticRotation = new CoverRotation(this); prefs.data.registerOnSharedPreferenceChangeListener(preferenceListener);
+        closeForegroundQuery();
+        foregroundQuery = new CoverWindowQuery(Executors.newSingleThreadExecutor(), main::post, id -> CoverWindowQuery.readWindows(this, id), this::foregroundWindows);
         try { systemUiTitle = getPackageManager().getApplicationInfo("com.android.systemui", 0).loadLabel(getPackageManager()); } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { systemUiTitle = null; }
         updateApplicationRules();
         if (systemControlGuard != null) systemControlGuard.close();
@@ -344,7 +350,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             if (watchPaging) info.eventTypes |= AccessibilityEvent.TYPE_VIEW_SCROLLED; else info.eventTypes &= ~AccessibilityEvent.TYPE_VIEW_SCROLLED;
             if (types != info.eventTypes || info.notificationTimeout != timeout) { info.notificationTimeout = timeout; setServiceInfo(info); }
         }
-        if (foregroundNeeded) observeForeground(null);
+        if (foregroundNeeded) observeForeground(null); else invalidateForegroundQuery();
         syncCardStatus(); syncDockVisibility();
     }
     private void resetStatusApplication() { main.removeCallbacks(settleStatusApplication); statusVisibility.reset(); }
@@ -401,85 +407,131 @@ public final class CoverService extends AccessibilityService implements DisplayM
         panelAnimation.start();
     }
     private void observeForeground(AccessibilityEvent event) {
-        if (prefs == null) return;
-        launcherHostFocused = false; nativeHostVisible = false; coverClockVisible = false; foregroundSceneResolved = false;
+        if (instance != this || prefs == null || foregroundQuery == null) return;
         Display target = Displays.selected(this, prefs);
-        if (target == null || target.getDisplayId() == Display.DEFAULT_DISPLAY) { nativeHostArea(null, null); resetStatusApplication(); syncCardStatus(); launcherVisibilityChanged(); return; }
+        if (!foregroundAllowed(target)) {
+            invalidateForegroundQuery(); launcherHostFocused = false; nativeHostVisible = false; coverClockVisible = false; foregroundSceneResolved = false;
+            nativeHostArea(null, null); resetStatusApplication(); syncCardStatus(); launcherVisibilityChanged(); return;
+        }
+        CoverWindowQuery.Target next = foregroundTarget(target);
+        if (!next.equals(foregroundTarget)) { invalidateForegroundQuery(); foregroundTarget = next; }
+        // AccessibilityEvent is framework-owned. Retain only bounded metadata and
+        // preserve it across null refresh requests while the Binder read is pending.
+        if (event != null && event.getWindowId() >= 0 && (Build.VERSION.SDK_INT < 33 || event.getDisplayId() == target.getDisplayId())
+            && (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
+            String name = event.getPackageName() == null ? null : event.getPackageName().toString();
+            WindowEvent previous = foregroundEvents.get(event.getWindowId());
+            int type = previous != null && previous.type() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ? previous.type() : event.getEventType();
+            foregroundEvents.put(event.getWindowId(), new WindowEvent(type, name != null ? name : previous == null ? null : previous.packageName()));
+            while (foregroundEvents.size() > 32) foregroundEvents.remove(foregroundEvents.keySet().iterator().next());
+        }
+        foregroundQuery.request(next, event != null);
+    }
+    private boolean foregroundAllowed(Display target) {
+        return target != null && target.getDisplayId() != Display.DEFAULT_DISPLAY && target.getState() == Display.STATE_ON
+            && !getSystemService(KeyguardManager.class).isKeyguardLocked() && (prefs.enabled() || statusVisibility.enabled() || dockAppRulesEnabled);
+    }
+    private CoverWindowQuery.Target foregroundTarget(Display target) {
+        Point size = Displays.size(target);
+        return new CoverWindowQuery.Target(target.getDisplayId(), target.getName(), target.getRotation(), size.x, size.y);
+    }
+    private void invalidateForegroundQuery() {
+        if (foregroundQuery != null) foregroundQuery.invalidate();
+        foregroundTarget = null; foregroundEvents.clear(); windowPackages.clear();
+        launcherForegroundPending = false; launcherHostFocused = false; nativeHostVisible = false; coverClockVisible = false; foregroundSceneResolved = false; keyboardVisible = null; clockWindowId = -1;
+    }
+    private void closeForegroundQuery() {
+        invalidateForegroundQuery();
+        if (foregroundQuery != null) foregroundQuery.close();
+        foregroundQuery = null;
+    }
+    private void foregroundWindows(CoverWindowQuery.Target requested, java.util.List<CoverWindowQuery.Window> items) {
+        if (instance != this || prefs == null || foregroundQuery == null) return;
+        Display target = Displays.selected(this, prefs);
+        if (!foregroundAllowed(target) || !requested.equals(foregroundTarget(target))) { invalidateForegroundQuery(); return; }
+        launcherHostFocused = false; nativeHostVisible = false; coverClockVisible = false; foregroundSceneResolved = false;
         nativeHostArea(target, null);
         try {
-            android.util.SparseArray<java.util.List<android.view.accessibility.AccessibilityWindowInfo>> all = getWindowsOnAllDisplays();
-            try {
-                java.util.List<android.view.accessibility.AccessibilityWindowInfo> items = all.get(target.getDisplayId());
-                if (items == null) { statusApplication(null); if (taskGlass != null && taskGlass.displayId == target.getDisplayId()) taskGlass.sourceMissing(); launcherVisibilityChanged(); return; }
-                boolean packageNeeded = statusVisibility.enabled() || dockAppRulesEnabled || prefs.enabled();
-                if (packageNeeded && event != null && event.getPackageName() != null && event.getWindowId() >= 0
-                    && (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
-                    && Build.VERSION.SDK_INT >= 33 && event.getDisplayId() == target.getDisplayId()) {
-                    // The state event may precede the window-list update. Retain its verified
-                    // display/window identity so the next snapshot can resolve that window.
-                    windowPackages.put(event.getWindowId(), event.getPackageName().toString());
+            if (items == null) { launcherForegroundPending = false; statusApplication(null); if (taskGlass != null && taskGlass.displayId == target.getDisplayId()) taskGlass.sourceMissing(); launcherVisibilityChanged(); return; }
+            boolean packageNeeded = statusVisibility.enabled() || dockAppRulesEnabled || prefs.enabled();
+            boolean stateChanged = false;
+            for (java.util.Map.Entry<Integer, WindowEvent> entry : foregroundEvents.entrySet()) {
+                WindowEvent event = entry.getValue();
+                boolean belongs = Build.VERSION.SDK_INT >= 33 || items.stream().anyMatch(window -> window.id() == entry.getKey());
+                if (belongs && packageNeeded && event.packageName() != null) windowPackages.put(entry.getKey(), event.packageName());
+                if (belongs && event.type() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) stateChanged = true;
+            }
+            String active = null, focused = null; boolean inputMethod = false;
+            int backgroundWindow = -1, backgroundLayer = Integer.MIN_VALUE;
+            CharSequence backgroundTitle = null; boolean externalSceneChanged = false;
+            boolean backgroundActive = false;
+            android.graphics.Rect backgroundBounds = new android.graphics.Rect();
+            DockGeometry.Box hostBounds = null; int hostLayer = Integer.MIN_VALUE;
+            for (CoverWindowQuery.Window window : items) {
+                if (window.type() == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && window.layer() > backgroundLayer) {
+                    backgroundLayer = window.layer(); backgroundWindow = window.id(); backgroundTitle = window.title(); backgroundBounds.set(window.left(), window.top(), window.right(), window.bottom());
+                    backgroundActive = window.active() || window.focused();
                 }
-                String active = null, focused = null; boolean inputMethod = false;
-                int backgroundWindow = -1, backgroundLayer = Integer.MIN_VALUE;
-                CharSequence backgroundTitle = null; boolean externalSceneChanged = false;
-                boolean backgroundActive = false;
-                android.graphics.Rect backgroundBounds = new android.graphics.Rect();
-                DockGeometry.Box hostBounds = null; int hostLayer = Integer.MIN_VALUE;
-                for (android.view.accessibility.AccessibilityWindowInfo window : items) {
-                    if (window.getType() == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && window.getLayer() > backgroundLayer) {
-                        backgroundLayer = window.getLayer(); backgroundWindow = window.getId(); backgroundTitle = window.getTitle(); window.getBoundsInScreen(backgroundBounds);
-                        backgroundActive = window.isActive() || window.isFocused();
+                if (window.type() == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD) inputMethod = true;
+                // Samsung's host window survives card and orientation changes without
+                // necessarily emitting another package-bearing WINDOW_STATE_CHANGED.
+                if (window.type() == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && "SubLauncherWindow".equals(window.title())) {
+                    if (window.focused()) launcherHostFocused = true;
+                    if (window.layer() > hostLayer) {
+                        hostLayer = window.layer();
+                        hostBounds = new DockGeometry.Box(window.left(), window.top(), window.right() - window.left(), window.bottom() - window.top());
                     }
-                    if (window.getType() == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD) inputMethod = true;
-                    // Samsung's host window survives card and orientation changes without
-                    // necessarily emitting another package-bearing WINDOW_STATE_CHANGED.
-                    if (window.getType() == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && "SubLauncherWindow".contentEquals(window.getTitle() == null ? "" : window.getTitle())) {
-                        if (window.isFocused()) launcherHostFocused = true;
-                        if (window.getLayer() > hostLayer) {
-                            android.graphics.Rect bounds = new android.graphics.Rect(); window.getBoundsInScreen(bounds); hostLayer = window.getLayer();
-                            hostBounds = new DockGeometry.Box(bounds.left, bounds.top, bounds.width(), bounds.height());
-                        }
-                    }
-                    if (window.getType() != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && window.getType() != android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM) continue;
-                    // Samsung can switch the cover host's page without replacing its window ID.
-                    if (event != null && event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && window.getId() == event.getWindowId()
-                        && (window.isFocused() || window.isActive() || taskGlass != null && taskGlass.sourceStateChanged(window.getId()))) externalSceneChanged = true;
-                    if (packageNeeded && event != null && window.getId() == event.getWindowId() && (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) && event.getPackageName() != null) windowPackages.put(window.getId(), event.getPackageName().toString());
-                    String name = packageNeeded ? windowPackages.get(window.getId()) : null;
-                    if (name != null && window.isActive() && active == null) active = name;
-                    if (name != null && window.isFocused() && focused == null) focused = name;
                 }
-                nativeHostVisible = "SubLauncherWindow".contentEquals(backgroundTitle == null ? "" : backgroundTitle);
-                foregroundSceneResolved = backgroundActive && backgroundTitle != null;
-                String backgroundPackage = windowPackages.get(backgroundWindow);
-                coverClockVisible = DockVisibility.clockPage(backgroundPackage, backgroundTitle, systemUiTitle, backgroundActive);
-                if (coverClockVisible) { clockWindowId = backgroundWindow; if (event != null && event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) returningToClock = false; }
-                if (coverClockVisible && backgroundPackage == null) { backgroundPackage = "com.android.systemui"; windowPackages.put(backgroundWindow, backgroundPackage); }
-                nativeHostArea(target, hostBounds);
-                if (hub != null && hub.showingTasks() && taskGlass != null && taskGlass.displayId == target.getDisplayId() && (externalSceneChanged || taskGlass.observedSourceChanged(backgroundWindow, backgroundBounds, backgroundTitle))) {
-                    PanelGlassSession session = taskGlass; AppHubView owner = hub; RecentTasksView page = owner.taskPage(); session.invalidateSource();
-                    session.refreshSource(this, target, backgroundWindow, backgroundBounds, backgroundTitle,
-                        () -> hub == owner && taskGlass == session && !owner.closing() && owner.isAttachedToWindow() && currentTaskDisplay(target.getDisplayId()) && session.matches(target) && PanelGlassSession.allowed(screenContext, prefs), page::backgroundStable);
-                }
-                // Keep a small cache so a temporarily covered app can regain focus without
-                // a new state event. IDs and package names are never persisted or exported.
-                if (packageNeeded) while (windowPackages.size() > 32) windowPackages.remove(windowPackages.keySet().iterator().next());
-                if (packageNeeded) dockVisibility.foreground(coverClockVisible || backgroundActive ? backgroundPackage : active != null ? active : focused != null ? focused : backgroundPackage);
-                // The highest application window belongs to this display. System/IME/own
-                // overlays cannot borrow another display's package. Briefly unresolved
-                // window replacements wait for metadata, then default to visible.
-                if (statusVisibility.enabled()) statusApplication(windowPackages.get(backgroundWindow));
-                keyboardVisible = inputMethod;
-                if (display != null && display.getDisplayId() == target.getDisplayId()) { syncDockVisibility(); launcherVisibilityChanged(); }
-            } finally { for (int i = 0; i < all.size(); i++) for (android.view.accessibility.AccessibilityWindowInfo window : all.valueAt(i)) window.recycle(); }
+                if (window.type() != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && window.type() != android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM) continue;
+                // Samsung can switch the cover host's page without replacing its window ID.
+                WindowEvent event = foregroundEvents.get(window.id());
+                if (event != null && event.type() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                    && (window.focused() || window.active() || taskGlass != null && taskGlass.sourceStateChanged(window.id()))) externalSceneChanged = true;
+                String name = packageNeeded ? windowPackages.get(window.id()) : null;
+                if (name != null && window.active() && active == null) active = name;
+                if (name != null && window.focused() && focused == null) focused = name;
+            }
+            nativeHostVisible = "SubLauncherWindow".contentEquals(backgroundTitle == null ? "" : backgroundTitle);
+            foregroundSceneResolved = backgroundActive && backgroundTitle != null;
+            String backgroundPackage = windowPackages.get(backgroundWindow);
+            coverClockVisible = DockVisibility.clockPage(backgroundPackage, backgroundTitle, systemUiTitle, backgroundActive);
+            if (coverClockVisible) { clockWindowId = backgroundWindow; if (stateChanged) returningToClock = false; }
+            if (coverClockVisible && backgroundPackage == null) { backgroundPackage = "com.android.systemui"; windowPackages.put(backgroundWindow, backgroundPackage); }
+            nativeHostArea(target, hostBounds);
+            if (hub != null && hub.showingTasks() && taskGlass != null && taskGlass.displayId == target.getDisplayId() && (externalSceneChanged || taskGlass.observedSourceChanged(backgroundWindow, backgroundBounds, backgroundTitle))) {
+                PanelGlassSession session = taskGlass; AppHubView owner = hub; RecentTasksView page = owner.taskPage(); session.invalidateSource();
+                session.refreshSource(this, target, backgroundWindow, backgroundBounds, backgroundTitle,
+                    () -> hub == owner && taskGlass == session && !owner.closing() && owner.isAttachedToWindow() && currentTaskDisplay(target.getDisplayId()) && session.matches(target) && PanelGlassSession.allowed(screenContext, prefs), page::backgroundStable);
+            }
+            // Keep a small cache so a temporarily covered app can regain focus without
+            // a new state event. IDs and package names are never persisted or exported.
+            if (packageNeeded) while (windowPackages.size() > 32) windowPackages.remove(windowPackages.keySet().iterator().next());
+            if (packageNeeded) dockVisibility.foreground(coverClockVisible || backgroundActive ? backgroundPackage : active != null ? active : focused != null ? focused : backgroundPackage);
+            // The highest application window belongs to this display. System/IME/own
+            // overlays cannot borrow another display's package. Briefly unresolved
+            // window replacements wait for metadata, then default to visible.
+            if (statusVisibility.enabled()) statusApplication(windowPackages.get(backgroundWindow));
+            keyboardVisible = inputMethod;
+            if (launcherForegroundPending) {
+                launcherForegroundPending = false;
+                launcherEntryPending = launcherHostFocused && dock != null && !dock.compact();
+            }
+            if (display != null && display.getDisplayId() == target.getDisplayId()) { syncDockVisibility(); launcherVisibilityChanged(); }
+            resumeNativeCardUpdates();
         } catch (RuntimeException ignored) { statusApplication(null); launcherHostFocused = false; launcherVisibilityChanged(); }
+        finally { foregroundEvents.clear(); }
     }
+    @Override public boolean onUnbind(Intent intent) { closeForegroundQuery(); return super.onUnbind(intent); }
     @Override public void onInterrupt() {
         // This interrupts spoken/haptic feedback, not the service or its persistent windows.
     }
     @Override public void onDisplayAdded(int id) { scheduleDisplay(); if (systemControlGuard != null) systemControlGuard.changed(); }
-    @Override public void onDisplayRemoved(int id) { if (nativeHostArea != null && nativeHostArea.displayId == id) nativeHostArea(null, null); scheduleDisplay(); if (systemControlGuard != null) systemControlGuard.changed(); }
+    @Override public void onDisplayRemoved(int id) { if (foregroundTarget != null && foregroundTarget.displayId() == id) invalidateForegroundQuery(); if (nativeHostArea != null && nativeHostArea.displayId == id) nativeHostArea(null, null); scheduleDisplay(); if (systemControlGuard != null) systemControlGuard.changed(); }
     @Override public void onDisplayChanged(int id) {
+        if (foregroundTarget != null && foregroundTarget.displayId() == id) {
+            Display target = Displays.selected(this, prefs);
+            if (!foregroundAllowed(target) || !foregroundTarget.equals(foregroundTarget(target))) invalidateForegroundQuery();
+        }
         scheduleDisplay();
         if (systemControlGuard != null && (id == Display.DEFAULT_DISPLAY || display != null && id == display.getDisplayId())) systemControlGuard.changed();
     }
@@ -531,7 +583,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             android.os.Bundle editorState = !homeClosing && controlEditor != null && display != null && display.getDisplayId() == selected.getDisplayId() ? controlEditor.snapshot() : null;
             RecentTasks.Task selectedTask = reopenHub ? hub.selectedTask() : null;
             AppHubView.WorkspaceState workspaceState = reopenHub ? hub.workspaceState() : null;
-            boolean firstDockPresentation = dock == null || dock.compact() || launcherEntryPending;
+            boolean firstDockPresentation = dock == null || dock.compact() || launcherEntryPending || launcherForegroundPending;
             removeWindows(true);
             display = selected;
             screenContext = context.createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null);
@@ -675,8 +727,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
         // The host window can appear before its per-card visible callback. Keep
         // these two entries out of the first frame, without delaying other keys.
         launcherEntryPending = firstPresentation && !compact && launcherHostFocused && CoverApp.launcherWidgets(this).cards().length > 0;
+        // Unknown foreground keeps entries available, but reserve the same bounded
+        // first-presentation wait for the asynchronous host result (no new timer).
+        launcherForegroundPending = firstPresentation && !compact && !foregroundSceneResolved && CoverApp.launcherWidgets(this).cards().length > 0;
         launcherVisibilityChanged();
-        if (launcherEntryPending && !launcherExitPending) main.postDelayed(settleLauncherEntry, 600);
+        if ((launcherEntryPending || launcherForegroundPending) && !launcherExitPending) main.postDelayed(settleLauncherEntry, 600);
     }
     private DockView.Listener chromeListener() {
         return new DockView.Listener() {
@@ -714,6 +769,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         boolean eligible = hub == null && launcherHostFocused && available;
         boolean visible = CoverApp.launcherWidgets(this).visible(display.getDisplayId());
         boolean destinationKnown = dock.compact() || (coverClockVisible ? !dockCompact() : foregroundSceneResolved && !nativeHostVisible);
+        if (!available || hub != null || visible || dock.compact()) launcherForegroundPending = false;
         if (!eligible || visible) launcherEntryPending = false;
         if (!available || hub != null || eligible && visible || destinationKnown || !dockVisibility.clockNeedsCollapse()) launcherExitPending = false;
         boolean disabledByCard = eligible && (visible || launcherEntryPending);
@@ -722,7 +778,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (deferExit && available && hub == null && !disabledByCard && dock.launcherDisabled() && dockVisibility.clockNeedsCollapse() && !destinationKnown && !launcherExitPending) {
             launcherExitPending = true; main.removeCallbacks(settleLauncherEntry); main.postDelayed(settleLauncherEntry, 600); scheduleDisplay();
         }
-        if (!launcherEntryPending && !launcherExitPending) main.removeCallbacks(settleLauncherEntry);
+        if (!launcherEntryPending && !launcherExitPending && !launcherForegroundPending) main.removeCallbacks(settleLauncherEntry);
         dock.launcherDisabled(disabledByCard || launcherExitPending);
         String state = "clock=" + coverClockVisible + ", native=" + nativeHostVisible + ", resolved=" + foregroundSceneResolved + ", card=" + visible + ", compact=" + dock.compact() + ", disabled=" + dock.launcherDisabled() + ", exitPending=" + launcherExitPending + ", timeout=" + !deferExit;
         if (!state.equals(launcherVisibilityState)) {
@@ -962,7 +1018,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         int top = definition.useSafeArea() ? contentTop : content.y();
         if (definition.showStatusBar() && controlStatusBox != null) top = Math.max(top, controlStatusBox.bottom() + Ui.dp(screenContext, 4));
         LinearLayout body = buildPanelContent(page, frame, top, content);
-        panelCard = new InterfaceCard(screenContext, prefs, definition, body, () -> { if (body instanceof PanelSurface surface) surface.prepareScenePush(); }, body::removeAllViews);
+        panelCard = new InterfaceCard(body.getContext(), prefs, definition, body, () -> { if (body instanceof PanelSurface surface) surface.prepareScenePush(); }, body::removeAllViews);
         panelCard.frameBounds(frame, cardSafeBounds()); panelCard.contentSafeBounds(placement.panel()); panelCard.statusBounds(controlStatusBox);
         panelContentPadding.set(body.getPaddingLeft(), body.getPaddingTop(), body.getPaddingRight(), body.getPaddingBottom()); return panelCard;
     }
@@ -981,7 +1037,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         panelFrame = frame;
         panelPage = page;
         if (panelHost instanceof InputSurface input) input.page("panel:" + page);
-        panel = new PanelSurface(screenContext, panelEdge(), panelExtent(), prefs.haptics(), new PanelHeaderView.Listener() {
+        Context context = page.equals("notifications") ? screenContext : PanelUi.controlContext(screenContext);
+        panel = new PanelSurface(context, panelEdge(), panelExtent(), prefs.haptics(), new PanelHeaderView.Listener() {
             @Override public void begin() { cancelPanelAnimation(); panelPulling = false; panelDragging = true; }
             @Override public float currentProgress() { return panelProgress; }
             @Override public boolean cancelCloses() { return !panelTargetOpen; }
@@ -998,11 +1055,12 @@ public final class CoverService extends AccessibilityService implements DisplayM
         panel.removeAllViews();
         panel.setPadding(panelContentPadding.left, panelContentPadding.top, panelContentPadding.right, panelContentPadding.bottom);
         LinearLayout body = panel;
+        Context context = body.getContext();
         body.setClipChildren(!page.equals("notifications") && !page.equals("rotation")); body.setClipToPadding(!page.equals("notifications") && !page.equals("rotation"));
         panels = new Panels(this); View contents = panels.build(page);
-        LinearLayout header = page.equals("notifications") ? new NotificationForceHeader(screenContext) : page.equals("controls") ? new ControlHeaderView(screenContext) : Ui.row(screenContext); header.setTag("panel-header");
+        LinearLayout header = page.equals("notifications") ? new NotificationForceHeader(context) : page.equals("controls") ? new ControlHeaderView(context) : Ui.row(context); header.setTag("panel-header");
         String title = switch (page) { case "rotation" -> "旋转方向"; case "notifications" -> "通知中心"; case "media" -> "媒体控制"; default -> "控制中心"; };
-        TextView heading = Ui.heading(screenContext, title, 17); heading.setMinimumHeight(Ui.dp(screenContext, 36)); heading.setGravity(Gravity.CENTER_VERTICAL); heading.setAccessibilityHeading(true);
+        TextView heading = Ui.heading(context, title, 17); heading.setMinimumHeight(Ui.dp(context, 36)); heading.setGravity(Gravity.CENTER_VERTICAL); heading.setAccessibilityHeading(true);
         if (page.equals("notifications")) {
             heading.setSingleLine(); heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
             FrameLayout titleArea = new FrameLayout(screenContext); titleArea.addView(heading, new FrameLayout.LayoutParams(-1, -1));
@@ -1013,13 +1071,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
             LinearLayout.LayoutParams settingsSize = new LinearLayout.LayoutParams(Ui.dp(screenContext, PanelUi.SLOT), Ui.dp(screenContext, PanelUi.SLOT)); header.addView(settings, settingsSize);
             LinearLayout.LayoutParams clearSize = new LinearLayout.LayoutParams(-2, Ui.dp(screenContext, PanelUi.SLOT)); header.addView(panels.notificationClearAction(), clearSize);
         } else header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
-        if (page.equals("controls")) { View edit = RuntimeVisuals.button(screenContext, R.drawable.ic_ms_edit, "编辑控制中心", this::editControls); edit.setTag("control-edit"); header.addView(edit); }
+        if (page.equals("controls")) { View edit = RuntimeVisuals.button(context, R.drawable.ic_ms_edit, "编辑控制中心", this::editControls); edit.setTag("control-edit"); header.addView(edit); }
         // Adding is available inside the single editor entry.
         if (page.equals("controls")) {
-            android.widget.ImageButton refresh = RuntimeVisuals.button(screenContext, R.drawable.ic_ms_refresh, "刷新状态", () -> { }); refresh.setTag("control-refresh");
+            android.widget.ImageButton refresh = RuntimeVisuals.button(context, R.drawable.ic_ms_refresh, "刷新状态", () -> { }); refresh.setTag("control-refresh");
             refresh.setOnClickListener(v -> { refresh.setEnabled(false); refresh.setActivated(true); refresh.setStateDescription("正在刷新"); refreshStates(true, () -> { refresh.setEnabled(true); refresh.setActivated(false); refresh.setStateDescription("刷新状态"); }); }); header.addView(refresh);
         }
-        if (!page.equals("controls")) header.addView(RuntimeVisuals.button(screenContext, R.drawable.ic_ms_close, "关闭面板", this::closePanel)); LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(-1, -2); headerParams.bottomMargin = Ui.dp(screenContext, 3); body.addView(header, headerParams);
+        if (!page.equals("controls")) header.addView(RuntimeVisuals.button(context, R.drawable.ic_ms_close, "关闭面板", this::closePanel)); LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(-1, -2); headerParams.bottomMargin = Ui.dp(context, 3); body.addView(header, headerParams);
         if (page.equals("controls") || page.equals("notifications")) for (int i=1;i<header.getChildCount();i++) {
             View action=header.getChildAt(i); android.view.ViewGroup.LayoutParams size=action.getLayoutParams();
             header.removeViewAt(i); header.addView(new PanelActionSlot(action),i,size);
@@ -1027,14 +1085,14 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (header instanceof PanelActionHeader splitting) splitting.actions();
         if (page.equals("controls")) panels.bindControlHeader(header);
         Panels contentPanels = panels;
-        ScrollView scroll = page.equals("notifications") ? new NotificationScrollView(screenContext) : new ScrollView(screenContext) {
+        ScrollView scroll = page.equals("notifications") ? new NotificationScrollView(context) : new ScrollView(context) {
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 if (page.equals("controls") && MeasureSpec.getMode(heightSpec) != MeasureSpec.UNSPECIFIED) contentPanels.controlViewportHeight(MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom());
                 super.onMeasure(widthSpec, heightSpec);
             }
         }; scroll.setFillViewport(page.equals("controls")); scroll.setVerticalScrollBarEnabled(!page.equals("notifications")); scroll.addView(contents);
         body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        feedback = Ui.text(screenContext, "", 11, Ui.MUTED); feedback.setVisibility(View.GONE); feedback.setMaxLines(2); body.addView(feedback);
+        feedback = Ui.text(context, "", 11, Ui.MUTED); feedback.setVisibility(View.GONE); feedback.setMaxLines(2); body.addView(feedback);
         if (panelCard != null && page.equals("controls")) panelCard.refreshControlMotion();
     }
     void editControls() { editControls(null); }
@@ -1044,7 +1102,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         panel.removeAllViews(); panels = null; feedback = null;
         if (panelCard != null) panelCard.statusVisible(false);
         panel.setPadding(panelContentPadding.left, panelContentPadding.top, panelContentPadding.right, panelContentPadding.bottom);
-        controlEditor = new ControlEditorView(screenContext, prefs, restored, id -> CoverApp.bridge(this).run("tile_add", -1, 0, ActionCatalog.component(id).flattenToString(), result -> message(result.message)), () -> {
+        controlEditor = new ControlEditorView(panel.getContext(), prefs, restored, id -> CoverApp.bridge(this).run("tile_add", -1, 0, ActionCatalog.component(id).flattenToString(), result -> message(result.message)), () -> {
             if (panel == null || controlEditor == null) return;
             screenContext.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(controlEditor.getWindowToken(), 0);
             controlEditor = null; populatePanel("controls"); if (panelCard != null) panelCard.statusVisible(true); panelEditorFocus(false); if (instance == this) refreshStates(true);
@@ -1153,7 +1211,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (panel == null || !(panel.getParent() instanceof FrameLayout host)) return;
         dismissDetails();
         if (panelGlass != null) panelGlass.beginModal(panelCard == null ? panel : panelCard);
-        DetailSheet sheet = new DetailSheet(screenContext, ActionCatalog.label(screenContext, id), this::dismissDetails); details = sheet;
+        DetailSheet sheet = new DetailSheet(panel.getContext(), ActionCatalog.label(panel.getContext(), id), this::dismissDetails); details = sheet;
         DockGeometry.Box safe = panelCard == null ? placement.panel() : panelCard.localArea(placement.panel()); FrameLayout.LayoutParams position = new FrameLayout.LayoutParams(safe.width(), safe.height()); position.leftMargin = safe.x(); position.topMargin = safe.y();
         host.addView(sheet, position); panel.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         setDetailBlur(true);
@@ -1746,12 +1804,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void removeWindows(boolean keepNativeGeometry) {
         locationGeneration++;
+        if (!keepNativeGeometry) invalidateForegroundQuery();
         removeDockHandle(false); dockHandleBox = null; dockHandlePositions = null;
         if (!keepNativeGeometry) { coverClockVisible = false; clockWindowId = -1; returningToClock = false; foregroundSceneResolved = false; }
         if (!keepNativeGeometry) { nativeHostArea(null, null); nativeGeometryDeferred = false; }
         main.removeCallbacks(updateNativeInput); if (nativeInput != null) nativeInput.close(); nativeHostVisible = false;
         homeClosing = false;
-        main.removeCallbacks(settleLauncherEntry); launcherEntryPending = false; launcherExitPending = false;
+        main.removeCallbacks(settleLauncherEntry); launcherEntryPending = false; launcherExitPending = false; launcherForegroundPending = false;
         CoverApp.widgets(this).safeArea(null, 0, 0, null);
         if (systemControlsToast != null) { systemControlsToast.cancel(); systemControlsToast = null; }
         removeHubImmediately(); closePanel();
@@ -2220,6 +2279,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         writer.println(CoverApp.launcher(this).diagnostics.report());
     }
     @Override public void onDestroy() {
+        closeForegroundQuery();
         CoverApp.inputs(this).unobserve(updateNativeInput);
         stopAutomaticRotation();
         main.removeCallbacks(restoreFromLauncherCard); pendingLauncherDisplay = -1;

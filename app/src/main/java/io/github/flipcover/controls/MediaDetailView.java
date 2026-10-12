@@ -30,7 +30,7 @@ final class MediaDetailView extends LinearLayout {
     private final Runnable update = this::render;
     private final Runnable tick = new Runnable() { @Override public void run() { if (!attached) return; updateTime(); if (sessions.info().playing()) postDelayed(this, 1000); } };
     MediaDetailView(CoverService owner) {
-        super(owner.screenContext); this.owner = owner; sessions = owner.mediaSessions(); setOrientation(VERTICAL); setTag("media-detail");
+        super(PanelUi.controlContext(owner.screenContext)); this.owner = owner; sessions = owner.mediaSessions(); setOrientation(VERTICAL); setTag("media-detail");
         output = tool(R.drawable.ic_ms_volume_up, "选择媒体输出", () -> owner.showDetails("volume", this)); output.setTag("media-output");
         playerPicker = tool(R.drawable.ic_ms_apps, "切换播放器", () -> { playersExpanded = !playersExpanded; render(); }); playerPicker.setTag("media-player-picker");
         openPlayer = tool(R.drawable.ic_ms_music_note, "打开播放器", owner::openMediaPlayer); openPlayer.setTag("media-open-player");

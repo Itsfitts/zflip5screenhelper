@@ -72,6 +72,8 @@ final class PanelGlassSession implements AutoCloseable {
     private PanelGlassSession replacement;
     private BooleanSupplier refreshCurrent, refreshIdle;
     private boolean closed, settled;
+    private volatile boolean windowReadCanceled;
+    private Runnable windowRead;
     private boolean sourceInvalidated, hadBackdrop;
     private int sourceWindowId = -1;
     private String sourceTitle;
@@ -237,27 +239,40 @@ final class PanelGlassSession implements AutoCloseable {
         capture(service, current, finish, false);
     }
     void capture(AccessibilityService service, BooleanSupplier current, Runnable finish, boolean windowOnly) {
+        capture(service, current, finish, windowOnly, id -> CoverWindowQuery.readWindows(service, id));
+    }
+    void capture(AccessibilityService service, BooleanSupplier current, Runnable finish, boolean windowOnly, CoverWindowQuery.Reader reader) {
         if (closed || sourceInvalidated || settled || captures > 0) return;
         this.current = current; this.finish = finish; started = SystemClock.uptimeMillis();
         if (displayId == Display.DEFAULT_DISPLAY || Build.VERSION.SDK_INT < 33) { complete(null,null,"unsupported"); return; }
         main.postDelayed(timeout, 150); captures++;
+        // Window enumeration may wait inside system_server. It shares the bounded
+        // glass worker so the 150ms main-thread fallback remains able to run.
+        windowRead = () -> {
+            if (windowReadCanceled) return;
+            try {
+                java.util.List<CoverWindowQuery.Window> windows = reader.read(displayId);
+                if (!windowReadCanceled) main.post(() -> captureWindows(service, windowOnly, windows));
+            } catch (RuntimeException | OutOfMemoryError failure) { if (!windowReadCanceled) main.post(() -> complete(null,null,failure.getClass().getSimpleName())); }
+        };
+        try { WORK.execute(windowRead); } catch (java.util.concurrent.RejectedExecutionException busy) { complete(null,null,"busy"); }
+    }
+    private void captureWindows(AccessibilityService service, boolean windowOnly, java.util.List<CoverWindowQuery.Window> windows) {
+        windowRead = null;
+        if (!accepting()) return;
         try {
             android.graphics.Rect sourceBounds = new android.graphics.Rect(0,0,width,height);
             int windowId = -1;
-            {
-                android.util.SparseArray<java.util.List<android.view.accessibility.AccessibilityWindowInfo>> all=service.getWindowsOnAllDisplays();
-                java.util.List<android.view.accessibility.AccessibilityWindowInfo> windows = all.get(displayId);
-                int layer = Integer.MIN_VALUE;
-                try { if (windows != null) for (android.view.accessibility.AccessibilityWindowInfo window : windows) {
-                    if (window.getType() == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && window.getLayer() > layer) {
-                        android.graphics.Rect bounds = new android.graphics.Rect(); window.getBoundsInScreen(bounds);
-                        layer=window.getLayer();
-                        sourceWindow(window.getId(), bounds, window.getTitle());
+            int layer = Integer.MIN_VALUE;
+            if (windows != null) for (CoverWindowQuery.Window window : windows) {
+                    if (window.type() == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION && window.layer() > layer) {
+                        android.graphics.Rect bounds = new android.graphics.Rect(window.left(), window.top(), window.right(), window.bottom());
+                        layer=window.layer();
+                        sourceWindow(window.id(), bounds, window.title());
                         // A floating top app must not be replaced by a full-screen app beneath it.
-                        windowId=Build.VERSION.SDK_INT >= 34 && canCaptureWindow(bounds) ? window.getId() : -1;
+                        windowId=Build.VERSION.SDK_INT >= 34 && canCaptureWindow(bounds) ? window.id() : -1;
                         sourceBounds.set(windowId >= 0 ? bounds : new android.graphics.Rect(0,0,width,height));
                     }
-                } } finally { for (int i=0;i<all.size();i++) for (android.view.accessibility.AccessibilityWindowInfo window:all.valueAt(i)) window.recycle(); }
             }
             sourceX=sourceBounds.left; sourceY=sourceBounds.top; sourceKind=windowId >= 0 ? "window" : "display";
             // A departing launcher is still on screen during a push. Never bake it
@@ -306,6 +321,7 @@ final class PanelGlassSession implements AutoCloseable {
         } catch (java.util.concurrent.RejectedExecutionException busy) { bitmap.recycle(); complete(null,null,"busy"); }
     }
     private void complete(GlassBackdrop prepared, RuntimeShader program, String outcome) {
+        cancelWindowRead();
         if (closed || settled) { if (prepared != null) prepared.close(); return; }
         if (prepared != null && !accepting()) { prepared.close(); prepared = null; outcome = "expired"; }
         main.removeCallbacks(timeout); settled=true;
@@ -373,11 +389,17 @@ final class PanelGlassSession implements AutoCloseable {
     /** Deterministic emulator fixtures use the same production texture pipeline. */
     void fixture(Bitmap bitmap) { started = SystemClock.uptimeMillis(); current = () -> true; GlassBackdrop prepared = GlassBackdrop.prepare(bitmap, density, BLUR_LIMIT); shader = shader(prepared,0,0); backdrop = prepared; hadBackdrop = true; settled = true; preparations++; state = "fixture"; }
     @Override public void close() {
+        cancelWindowRead();
         main.getLooper().getQueue().removeIdleHandler(prepareTensionWhenIdle); tensionPreparationQueued = false;
         if (closed) return; closed = true; cancelSourceRefresh();
         if (sourceFade != null) { sourceFade.removeAllListeners(); sourceFade.removeAllUpdateListeners(); sourceFade.cancel(); sourceFade = null; }
         main.removeCallbacks(timeout); finish = null; current = null; clearViews(); shader = null;
         if (tensionRenderer != null) tensionRenderer.clear(); tensionRenderer = null; tensionSource = tensionStrongSource = null;
         if (backdrop != null) { backdrop.close(); backdrop = null; } state = "closed";
+    }
+    private void cancelWindowRead() {
+        windowReadCanceled = true;
+        if (windowRead != null) WORK.remove(windowRead);
+        windowRead = null;
     }
 }

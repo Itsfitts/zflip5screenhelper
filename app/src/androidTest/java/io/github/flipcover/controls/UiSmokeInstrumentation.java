@@ -37,8 +37,10 @@ public final class UiSmokeInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             if (!android.os.Build.HARDWARE.equals("ranchu") && !android.os.Build.HARDWARE.equals("goldfish")) throw new IllegalStateException("Run only on a disposable Android emulator");
+            if (scenario.equals("window-query")) { result.putString("result", new WindowQueryChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("app-launch-reuse")) { result.putString("result", new AppLaunchChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("lock-wake")) { result.putString("result", new LockWakeChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("rotation-lifecycle")) { result.putString("result", new RotationLifecycleChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("clock-dock")) { result.putString("result", new ClockDockChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("dock-auto-return")) { result.putString("result", new DockAutoReturnChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("clock-card-exit")) { result.putString("result", new ClockDockChecks(this).runCardExit()); finish(Activity.RESULT_OK, result); return; }
@@ -62,6 +64,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("control-level-loading")) { result.putString("result", new ControlMotionChecks(this).runLevels()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("control-motion")) { result.putString("result", new ControlMotionChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("control-dashboard")) { result.putString("result", ControlDashboardChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("control-typography")) { result.putString("result", ControlTypographyChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("interface-card")) { result.putString("result", new InterfaceCardChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-swipe")) { result.putString("result", new InterfaceCardChecks(this).runPanelSwipes()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("cover-home")) { result.putString("result", new InterfaceCardChecks(this).runHome()); finish(Activity.RESULT_OK, result); return; }

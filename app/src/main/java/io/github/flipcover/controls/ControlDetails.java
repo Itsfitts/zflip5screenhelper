@@ -41,7 +41,7 @@ final class ControlDetails implements AutoCloseable {
         @Override public void onTransfer(MediaRouter2.RoutingController old, MediaRouter2.RoutingController next) { pendingRoute = null; owner.main.removeCallbacks(routeTimeout); if (!closed) outputs(); }
         @Override public void onTransferFailure(MediaRoute2Info route) { pendingRoute = null; owner.main.removeCallbacks(routeTimeout); if (!closed) { outputs(); note("切换失败，请使用系统输出选择"); } }
     };
-    ControlDetails(CoverService owner, DetailSheet sheet) { this.owner = owner; context = owner.screenContext; this.sheet = sheet; sheet.panelStyle(); }
+    ControlDetails(CoverService owner, DetailSheet sheet) { this.owner = owner; context = sheet.getContext(); this.sheet = sheet; sheet.panelStyle(); }
     void build(String id) {
         if (SystemSwitches.IDS.contains(id)) { watchingSwitches = true; CoverApp.bridge(context).addSwitchObserver(switchChanged); switchChanged.run(); }
         switch (id) {

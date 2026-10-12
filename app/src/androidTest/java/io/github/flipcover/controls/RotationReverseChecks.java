@@ -55,10 +55,23 @@ final class RotationReverseChecks {
                             details = new ControlDetails(owner, sheet); details.build("rotation");
                             require(page.findViewWithTag("rotation-controls") instanceof RotationControls && sheet.findViewWithTag("rotation-controls") instanceof RotationControls, "both hosts use the same content component");
                             require(page.findViewWithTag("detail-switch-rotation") != null && sheet.findViewWithTag("detail-switch-rotation") != null, "automatic switch available in both hosts");
+                            CoverRotation automatic = new CoverRotation(owner, callback -> new android.view.OrientationEventListener(activity) { public void onOrientationChanged(int angle) { callback.accept(angle); } });
+                            java.lang.reflect.Field rotationOwner = CoverService.class.getDeclaredField("automaticRotation"); rotationOwner.setAccessible(true); rotationOwner.set(owner, automatic);
+                            java.lang.reflect.Field enabled = CoverRotation.class.getDeclaredField("enabled"); enabled.setAccessible(true);
+                            for (boolean active : new boolean[]{false, true}) {
+                                enabled.set(automatic, active);
+                                for (View host : new View[]{page, sheet}) {
+                                    ((RotationControls) host.findViewWithTag("rotation-controls")).refresh();
+                                    android.widget.TextView status = host.findViewWithTag("rotation-status");
+                                    require((active ? "已开启 · 所选外屏 (2秒轮询)" : "已关闭 · 所选外屏").contentEquals(status.getText()), "both rotation hosts show the same polling subtitle only when enabled");
+                                }
+                            }
                             require(sheet.findViewWithTag("detail-angle-" + expectedRotation).isSelected(), "detail retains real system angle");
                             View detailToggle = sheet.findViewWithTag("rotation-reverse-landscape");
                             require("已开启".contentEquals(detailToggle.getStateDescription()), "both surfaces share preference");
                             render(sheet, width, 680, new File(directory, "detail-" + expectedRotation + ".png"));
+                            android.widget.TextView subtitle = sheet.findViewWithTag("rotation-status");
+                            require(subtitle.getLayout().getEllipsisCount(subtitle.getLayout().getLineCount() - 1) == 0, "two-second subtitle fits without truncation");
                             detailToggle.performClick();
                             require(!prefs.reverseLandscapeRotation() && sheet.findViewWithTag("detail-angle-" + expectedRotation).isSelected(), "switching off preserves real angle");
                             require(originalPosition.equals(prefs.entryPosition(expectedRotation)), "switching never rewrites saved entry layout");

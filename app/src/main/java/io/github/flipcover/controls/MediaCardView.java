@@ -34,7 +34,7 @@ final class MediaCardView extends LinearLayout {
     @Override public boolean performClick() { if (control != null) control.pulse(); return super.performClick(); }
     MediaCardView(CoverService owner, boolean compact) { this(owner, compact, false); }
     MediaCardView(CoverService owner, boolean compact, boolean preview) {
-        super(owner.screenContext); this.owner = owner; this.compact = compact; this.preview = preview; sessions = preview ? null : owner.mediaSessions();
+        super(PanelUi.controlContext(owner.screenContext)); this.owner = owner; this.compact = compact; this.preview = preview; sessions = preview ? null : owner.mediaSessions();
         setOrientation(VERTICAL); setTag(compact ? "media-card" : "media-expanded"); int padding = Ui.dp(getContext(), compact ? 5 : 2); setPadding(padding, padding, padding, padding);
         RuntimeVisuals.surface(this, compact ? 0xED252A33 : android.graphics.Color.TRANSPARENT, 16); if (compact) { setFocusable(!preview); setOnClickListener(v -> openMedia()); setOnLongClickListener(v -> { openMedia(); return true; }); }
         artRow = Ui.row(getContext()); artRow.setGravity(compact ? Gravity.TOP : Gravity.CENTER);

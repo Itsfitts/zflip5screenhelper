@@ -15,6 +15,16 @@ final class PanelUi {
     static final float ACTION_SCALE=.8f;
     static final int ACTION_ICON=BuildConfig.APPEARANCE_PANEL_ACTION_ICON_DP;
     private PanelUi() { }
+    /** Local to control surfaces: retain the target display/density, isolate user font preferences. */
+    static Context controlContext(Context source) { return source instanceof ControlContext ? source : new ControlContext(source); }
+    private static final class ControlContext extends android.view.ContextThemeWrapper {
+        ControlContext(Context source) {
+            super(source, 0);
+            android.content.res.Configuration override = new android.content.res.Configuration(); override.fontScale = 1f;
+            if (android.os.Build.VERSION.SDK_INT >= 31) override.fontWeightAdjustment = 0;
+            applyOverrideConfiguration(override); getTheme().setTo(source.getTheme()); getTheme().applyStyle(R.style.ControlTypography, true);
+        }
+    }
     static Button button(Context c,String label,Runnable action) { Button button=Ui.button(c,label,action); action(button); return button; }
     static void action(Button button) { Context c=button.getContext(); button.setTextSize(ACTION); button.setMinHeight(Ui.dp(c,SLOT)); button.setMinimumHeight(Ui.dp(c,SLOT)); button.setPadding(Ui.dp(c,INSET),Ui.dp(c,4),Ui.dp(c,INSET),Ui.dp(c,4)); }
     static ImageButton icon(Context c,int icon,String label,Runnable action) { return Ui.iconButton(c,icon,label,action); }

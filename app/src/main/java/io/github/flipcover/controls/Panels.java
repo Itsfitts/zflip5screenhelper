@@ -17,7 +17,7 @@ import java.util.Map;
 
 final class Panels {
     private final CoverService owner;
-    private final Context context;
+    private Context context;
     private final boolean preview;
     private final Map<String, Tile> buttons = new HashMap<>();
     private LinearLayout body;
@@ -35,6 +35,7 @@ final class Panels {
     void controlViewportHeight(int height) { controlViewportHeight = Math.max(0, height); }
     void brightnessWorking(boolean value) { if (brightness != null) { brightness.setActivated(value); brightness.setStateDescription(value ? "正在调节外屏亮度" : null); brightness.invalidate(); } }
     View build(String page) {
+        context = page.equals("notifications") ? owner.screenContext : PanelUi.controlContext(owner.screenContext);
         body = Ui.column(context);
         switch (page) {
             case "rotation" -> rotation();
@@ -137,7 +138,7 @@ final class Panels {
         dashboard.addView(dashboard.positionHint);
         if (!actions.isEmpty() || dashboard.sliders != null || dashboard.media != null) body.addView(dashboard, new LinearLayout.LayoutParams(-1, 0, 1)); updateStates();
     }
-    private boolean roomyLabels() { return context.getResources().getConfiguration().fontScale > 1.3f || owner.prefs.panelLabelSize() == 2 || owner.prefs.panelDensity() == 2; }
+    private boolean roomyLabels() { return owner.prefs.panelLabelSize() == 2 || owner.prefs.panelDensity() == 2; }
     /** Compact labels keep side tools; large type and genuinely narrow widths can stack. */
     private final class ControlDashboard extends android.view.ViewGroup {
         private static final int VISIBLE_ROWS = 4;
@@ -200,7 +201,7 @@ final class Panels {
                 int face = Math.max(1, Math.min(Ui.dp(context, switch (density) { case 0 -> 48; case 2 -> 64; default -> 56; }), Math.min(cellWidth - inset, cellHeight - textHeight)));
                 FrameLayout.LayoutParams marker = (FrameLayout.LayoutParams) tile.unknown.getLayoutParams();
                 marker.width = marker.height = Ui.dp(context, 12); marker.topMargin = marker.rightMargin = Ui.dp(context, 2);
-                // This is an icon-like state mark; text labels still retain system font scaling.
+                // This icon-like state mark keeps the same size across the panel's label presets.
                 tile.unknown.setIncludeFontPadding(false); tile.unknown.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, Ui.dp(context, 9));
                 int symbol = Math.max(1, Math.min(Ui.dp(context, 23), face - marker.width - Ui.dp(context, 4)));
                 FrameLayout.LayoutParams glyph = (FrameLayout.LayoutParams) tile.icon.getLayoutParams(); glyph.width = glyph.height = symbol; glyph.gravity = Gravity.CENTER;

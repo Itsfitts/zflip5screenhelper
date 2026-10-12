@@ -42,7 +42,9 @@ final class ControlGridChecks {
     private void screenshot(String name) throws Exception { SystemClock.sleep(250); Bitmap bitmap = test.getUiAutomation().takeScreenshot(); try (FileOutputStream out = new FileOutputStream(new File(test.getTargetContext().getExternalFilesDir(null), "grid-" + name + ".png"))) { bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); } bitmap.recycle(); }
     private void mount() {
         main(() -> {
-            owner = new CoverService(); owner.screenContext = activity; owner.prefs = prefs; owner.display = activity.getDisplay();
+            owner = new CoverService();
+            try { var attach = android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext", android.content.Context.class); attach.setAccessible(true); attach.invoke(owner, activity); } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+            owner.screenContext = activity; owner.prefs = prefs; owner.display = activity.getDisplay();
             int width = activity.getResources().getDisplayMetrics().widthPixels, height = activity.getResources().getDisplayMetrics().heightPixels;
             DockGeometry.Box area = new DockGeometry.Box(0, 0, width, height); owner.placement = new DockGeometry.Placement(new DockGeometry.Box(0, height, width, 1), new DockGeometry.Box(0, height, width, 1), area, DockGeometry.BOTTOM, false);
             FrameLayout host = new FrameLayout(activity); host.setOnApplyWindowInsetsListener((view, insets) -> { android.graphics.Insets safe = insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout()); view.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
@@ -50,7 +52,7 @@ final class ControlGridChecks {
         });
     }
     String run(boolean layoutOnly) throws Exception {
-        prefs = new Prefs(test.getTargetContext()); prefs.data.edit().putBoolean("enabled", false).commit(); prefs.saveActions("panel", ACTIONS);
+        prefs = new Prefs(test.getTargetContext()); prefs.data.edit().putBoolean("enabled", false).putBoolean("panel_media", true).commit(); prefs.saveActions("panel", ACTIONS);
         activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); test.waitForIdleSync(); int previousColumns = prefs.panelColumns();
         try { if (layoutOnly) { for (int columns : new int[]{3, 4, 5}) { prefs.data.edit().putInt("panel_columns", columns).commit(); mount(); check(true); } } else { mount(); check(false); } return "PASS: same-screen control grid; " + assertions + " assertions; " + (layoutOnly ? "layout with 3/4/5 columns" : "native reorder/add/remove/cancel, undo, search, save/discard, subscription lifecycle") + "; density=" + activity.getResources().getDisplayMetrics().densityDpi + ", font=" + activity.getResources().getConfiguration().fontScale; }
         finally { main(() -> activity.finish()); prefs.data.edit().putInt("panel_columns", previousColumns).commit(); }
