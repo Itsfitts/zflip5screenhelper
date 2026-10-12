@@ -60,6 +60,7 @@
   },
   "appearance": {
     "settings": { "baseScale": 0.7 },
+    "appDisplay": { "smallerRatio": 0.8, "smallRatio": 0.9, "largeRatio": 1.1, "largerRatio": 1.2, "referenceDpi": 480, "referenceScale": 1.715 },
     "launcher": {
       "labelDp": 9,
       "compactIconDp": 30,

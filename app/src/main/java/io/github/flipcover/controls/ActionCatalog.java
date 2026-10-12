@@ -23,7 +23,7 @@ public final class ActionCatalog {
         new Action("back", "返回", R.drawable.ic_ms_arrow_back),
         new Action("home", "主页", R.drawable.ic_ms_home),
         new Action("recents", "外屏多任务", R.drawable.ic_ms_view_carousel),
-        new Action("system_recents", "系统最近任务（显示位置由系统决定）", R.drawable.ic_ms_view_carousel),
+        new Action("system_recents", "系统最近任务（需 Shizuku）", R.drawable.ic_ms_view_carousel),
         new Action("wifi", "Wi-Fi", R.drawable.ic_ms_wifi),
         new Action("bluetooth", "蓝牙", R.drawable.ic_ms_bluetooth),
         new Action("external_devices", "外接设备", R.drawable.ic_input_devices),

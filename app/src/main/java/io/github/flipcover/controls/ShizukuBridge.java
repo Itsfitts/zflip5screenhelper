@@ -16,7 +16,7 @@ import rikka.shizuku.Shizuku;
 
 public final class ShizukuBridge {
     // Refresh the user service when the operation whitelist changes within a validation version.
-    private static final int SERVICE_REVISION = 3;
+    private static final int SERVICE_REVISION = 6;
     record Snapshot(android.graphics.Bitmap bitmap, String message, boolean retryable) {
         Snapshot(android.graphics.Bitmap bitmap, String message) { this(bitmap, message, false); }
     }
@@ -175,7 +175,7 @@ public final class ShizukuBridge {
     // One task operation waits behind work already submitted to the same serial worker.
     // New previews cannot jump ahead of it; an obsolete page never executes its queued mutation.
     void runTask(String operation, int display, String component, java.util.function.BooleanSupplier active, Callback callback) {
-        if (!java.util.Set.of("recent_tasks", "recent_clear", "recent_dismiss", "recent_open").contains(operation)) throw new IllegalArgumentException("Not a task operation");
+        if (!java.util.Set.of("recent_tasks", "recent_page", "recent_clear", "recent_dismiss", "recent_open").contains(operation)) throw new IllegalArgumentException("Not a task operation");
         IShellService service = remote;
         if (service == null) { connect(); callback.accept(new Result(false, status() + "，请稍后重试", "")); return; }
         if (!taskBusy.compareAndSet(false, true)) { callback.accept(new Result(false, "上一项任务请求仍在执行，请稍后重试", "", true)); return; }

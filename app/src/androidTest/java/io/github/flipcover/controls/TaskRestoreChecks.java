@@ -44,13 +44,14 @@ final class TaskRestoreChecks {
                     @Override public void watchSwitches(IConnectivityListener listener) { }
                     public String execute(String operation, int display, int value, String component) {
                         require(operation.equals("recent_open") && display == virtual.getDisplay().getDisplayId(), "restore uses exact selected display and task boundary"); started.countDown();
+                        try { require(new org.json.JSONObject(component).getInt("displayId") == (count == 1 ? 0 : display), "inner source identity remains separate from outer destination"); } catch (org.json.JSONException error) { throw new AssertionError(error); }
                         try { if (!gate.await(5, TimeUnit.SECONDS)) throw new AssertionError("fixture response timeout"); } catch (InterruptedException error) { throw new AssertionError(error); }
                         return "{\"ok\":true,\"output\":\"{\\\"state\\\":\\\"opened\\\"}\"}";
                     }
                     public Bundle taskSnapshot(int display, String task) { return new Bundle(); }
                     public void watchConnectivity(IConnectivityListener listener) { } public void destroy() { }
                 });
-                List<RecentTasks.Task> tasks = new ArrayList<>(); for (int i = 0; i < count; i++) { AppCatalogCache.Entry app = apps.get(i % apps.size()); tasks.add(new RecentTasks.Task(800 + i, virtual.getDisplay().getDisplayId(), 0, app.id().substring(4), app.packageName(), false)); }
+                List<RecentTasks.Task> tasks = new ArrayList<>(); for (int i = 0; i < count; i++) { AppCatalogCache.Entry app = apps.get(i % apps.size()); tasks.add(new RecentTasks.Task(800 + i, count == 1 ? 0 : virtual.getDisplay().getDisplayId(), 0, app.id().substring(4), app.packageName(), false)); }
                 main(() -> {
                     owner[0] = new CoverService(); try { Method attach = ContextWrapper.class.getDeclaredMethod("attachBaseContext", Context.class); attach.setAccessible(true); attach.invoke(owner[0], activity); } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
                     CoverService.instance = owner[0]; owner[0].prefs = prefs; owner[0].display = virtual.getDisplay(); owner[0].screenContext = activity.createDisplayContext(virtual.getDisplay());

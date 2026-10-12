@@ -1379,6 +1379,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             @Override public void editFavorites() { openSettings("favorites"); }
             @Override public void editPinned() { openSettings("hub_pin"); }
             @Override public void settings() { openSettings("main"); }
+            @Override public void displaySize(String id) { android.content.ComponentName component = ActionCatalog.component(id); if (component != null) launch(new Intent(CoverService.this, MainActivity.class).putExtra("section", "app_display_size").putExtra("orientation_package", component.getPackageName())); }
             @Override public void applicationSettings(String id, boolean uninstall) {
                 android.content.ComponentName component = ActionCatalog.component(id); if (component == null) return;
                 Intent intent = new Intent(uninstall ? Intent.ACTION_DELETE : android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", component.getPackageName(), null)); launch(intent);
@@ -1661,7 +1662,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (target == null || target.closing() || target.recentBusy() || !target.showingTasks() || !target.isAttachedToWindow() || selected == null) return;
         int displayId = selected.getDisplayId();
         if (!currentTaskDisplay(displayId)) { target.recentFailure("目标外屏不可用"); return; }
-        java.util.List<RecentTasks.Task> requested = AppRecentTasks.clearTargets(this, prefs, tasks, true).stream().filter(task -> task.displayId() == displayId).collect(java.util.stream.Collectors.toList());
+        java.util.List<RecentTasks.Task> requested = AppRecentTasks.clearTargets(this, prefs, tasks, true).stream().filter(task -> RecentTasks.inPage(task.displayId(), displayId)).collect(java.util.stream.Collectors.toList());
         if (requested.isEmpty()) { message("没有可清理的未锁定任务"); return; }
         target.recentBusy(true);
         invalidateClosingTaskBackground(requested);
@@ -1691,7 +1692,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             AppRecentTasks.Snapshot snapshot = result.snapshot(); target.recentCapabilities(snapshot.canOpen(), snapshot.canClear(), snapshot.canSnapshot()); target.recentResult(snapshot.tasks(), result.message(), snapshot.complete());
             if (explicitTask) invalidateRemovedTaskBackground(clearing, snapshot);
         };
-        if (explicitTask) { invalidateClosingTaskBackground(clearing); AppRecentTasks.dismiss(this, prefs, clearing.get(0), active, complete); }
+        if (explicitTask) { invalidateClosingTaskBackground(clearing); AppRecentTasks.dismiss(this, prefs, displayId, clearing.get(0), active, complete); }
+        else if (target.showingTasks() && clearing == null) AppRecentTasks.requestPage(this, prefs, displayId, active, complete);
         else AppRecentTasks.request(this, prefs, displayId, clearing, active, complete);
     }
     private void invalidateClosingTaskBackground(java.util.List<RecentTasks.Task> requested) {
@@ -1710,16 +1712,17 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private void openHubTask(RecentTasks.Task task) {
         AppHubView target = hub;
         if (target == null || target.closing() || !target.isAttachedToWindow() || target.recentBusy()) return;
-        if (!currentTaskDisplay(task.displayId())) { target.recentFailure("目标外屏已改变"); return; }
+        int destination = display == null ? -1 : display.getDisplayId();
+        if (!currentTaskDisplay(destination) || !RecentTasks.inPage(task.displayId(), destination)) { target.recentFailure("目标外屏已改变"); return; }
         openingTaskHub = target;
         target.recentBusy(true);
-        AppRecentTasks.open(this, prefs, task, () -> hub == target && openingTaskHub == target && !target.closing() && target.isAttachedToWindow(), result -> finishHubTask(target, task, result));
+        AppRecentTasks.open(this, prefs, destination, task, () -> hub == target && openingTaskHub == target && !target.closing() && target.isAttachedToWindow(), result -> finishHubTask(target, task, destination, result));
     }
-    void finishHubTask(AppHubView target, RecentTasks.Task task, ShizukuBridge.Result result) {
+    void finishHubTask(AppHubView target, RecentTasks.Task task, int destination, ShizukuBridge.Result result) {
         if (openingTaskHub == target) openingTaskHub = null;
         if (hub != target) return;
         scheduleDisplay();
-        if (!currentTaskDisplay(task.displayId())) { if (hub == target) target.recentFailure("外屏状态已改变"); return; }
+        if (!currentTaskDisplay(destination)) { if (hub == target) target.recentFailure("外屏状态已改变"); return; }
         String state = "";
         if (result.ok) try { state = new JSONObject(result.output).getString("state"); } catch (Exception ignored) { }
         if (state.equals("opened")) { dismissHub(); closePanel(); }
@@ -1894,7 +1897,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             case "home" -> returnHome();
             case "back" -> { if (controlEditor != null) controlEditor.back(); else if (details != null) details.back(); else if (hub != null && !hub.closing()) hub.back(); else if (panel != null) closePanel(); else if (hub == null) global(GLOBAL_ACTION_BACK); }
             case "recents" -> { if (hub != null && hub.showingTasks() && !hub.closing()) dismissHub(); else { if (hub == null) showHub(true, true); if (hub != null) { if (hub.closing()) { closePanel(); hub.reopen(); } hub.showTasks(true); } } }
-            case "system_recents" -> global(GLOBAL_ACTION_RECENTS);
+            case "system_recents" -> systemRecents();
             case "lock" -> global(GLOBAL_ACTION_LOCK_SCREEN);
             case "screenshot" -> screenshot();
             case "torch" -> toggleTorch();
@@ -2037,6 +2040,17 @@ public final class CoverService extends AccessibilityService implements DisplayM
             if (result.ok) launcherAccepted(); else message(result.message);
         });
     }
+    private void systemRecents() {
+        int target = display == null ? -1 : display.getDisplayId();
+        if (!currentTaskDisplay(target)) { message("所选外屏不可用，请解锁后重试"); return; }
+        Context owner = screenContext;
+        removeHubImmediately(); closePanel();
+        // The global accessibility action can target the sleeping inner display on One UI.
+        CoverApp.bridge(this).run("system_recents", target, 0, "", () -> owner == screenContext && currentTaskDisplay(target), result -> {
+            if (owner != screenContext || !currentTaskDisplay(target)) return;
+            if (!result.ok) message(result.message);
+        });
+    }
     private void global(int action) { if (action == GLOBAL_ACTION_LOCK_SCREEN) removeHubImmediately(); else dismissHub(); closePanel(); main.postDelayed(() -> { if (!performGlobalAction(action)) message("系统未接受此操作"); }, 80); }
     void openSettings(String section) { launch(new Intent(this, MainActivity.class).putExtra("section", section)); }
     void launchApp(String id) {
@@ -2073,6 +2087,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void launch(Intent intent, boolean reuseTask) {
         if (!notificationDisplayReady()) { message("所选外屏不可用，请解锁后重试"); return; }
+        if (new android.content.ComponentName(this, MainActivity.class).equals(intent.getComponent())) {
+            try { MainActivity.startOnDisplay(this, intent, display.getDisplayId()); dismissHub(); closePanel(); }
+            catch (RuntimeException e) { message("无法在外屏打开：" + e.getClass().getSimpleName()); }
+            return;
+        }
         // Players may finish a duplicate launcher task immediately. Bring their existing task forward.
         if (reuseTask) intent.setFlags((intent.getFlags() & ~Intent.FLAG_ACTIVITY_MULTIPLE_TASK) | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         else intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);

@@ -7,6 +7,29 @@ import static org.junit.Assert.*;
 
 public class RecentTasksTest {
     private RecentTasks.Task task(int id, String name, boolean visible) { return new RecentTasks.Task(id, 2, 0, name + "/.Main", name, visible); }
+    @Test public void pageIncludesInnerCoverAndDetachedTasksButNeverOtherDisplaysOrInvalidTarget() {
+        assertTrue(RecentTasks.inPage(0, 2)); assertTrue(RecentTasks.inPage(2, 2)); assertTrue(RecentTasks.inPage(-1, 2));
+        assertFalse(RecentTasks.inPage(3, 2)); assertFalse(RecentTasks.inPage(-2, 2)); assertFalse(RecentTasks.inPage(0, 0));
+    }
+    @Test public void migrationConfirmsSameTaskOnDestinationWithoutWeakeningDismissIdentity() {
+        RecentTasks.Task inner = new RecentTasks.Task(7, 0, 0, "a.example/.Main", "a.example", true), cover = task(7, "a.example", true);
+        assertTrue(RecentTasks.sameTask(inner, inner)); assertTrue(RecentTasks.canDismiss(inner, inner, true));
+        assertFalse(RecentTasks.canDismiss(inner, cover, true));
+        assertTrue(RecentTasks.restored(inner, cover, 2));
+        assertFalse(RecentTasks.restored(inner, inner, 2)); assertFalse(RecentTasks.restored(inner, inner, 0));
+        assertFalse(RecentTasks.restored(inner, task(7, "a.example", false), 2));
+        assertFalse(RecentTasks.restored(inner, task(8, "a.example", true), 2));
+        assertFalse(RecentTasks.restored(inner, task(7, "b.example", true), 2));
+        assertFalse(RecentTasks.restored(inner, new RecentTasks.Task(7, 2, 10, inner.component(), inner.packageName(), true), 2));
+        RecentTasks.Task detached = new RecentTasks.Task(7, -1, 0, inner.component(), inner.packageName(), false);
+        assertTrue(RecentTasks.sameTask(detached, detached)); assertTrue(RecentTasks.restored(detached, cover, 2));
+    }
+    @Test public void dockRefreshCannotForgetInnerTaskLocks() {
+        RecentTasks.Locks locks = new RecentTasks.Locks(); RecentTasks.Task inner = new RecentTasks.Task(7, 0, 0, "a.example/.Main", "a.example", false);
+        locks.toggle(inner); locks.reconcile(2, 0, List.of(), true); assertTrue(locks.contains(inner));
+        locks.reconcile(2, 0, List.of(), false, true); assertTrue(locks.contains(inner));
+        locks.reconcile(2, 0, List.of(), true, true); assertFalse(locks.contains(inner));
+    }
     @Test public void staleIdentityCannotClearAnotherDisplayUserOrApplication() {
         RecentTasks.Task expected = task(7, "a.example", false);
         assertTrue(RecentTasks.canClear(expected, expected));

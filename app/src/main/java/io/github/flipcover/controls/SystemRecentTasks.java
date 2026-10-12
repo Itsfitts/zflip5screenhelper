@@ -45,8 +45,9 @@ final class SystemRecentTasks {
     private RecentTasks.Task requested(int display, JSONObject item) throws Exception {
         ComponentName component = ComponentName.unflattenFromString(item.getString("component"));
         int id = item.getInt("id");
-        if (component == null || id < 0 || item.getInt("userId") != userId || item.getInt("displayId") != display) throw new IllegalArgumentException("任务身份无效");
-        return new RecentTasks.Task(id, display, userId, component.flattenToString(), component.getPackageName(), false);
+        int sourceDisplay = item.getInt("displayId");
+        if (component == null || id < 0 || item.getInt("userId") != userId || !RecentTasks.inPage(sourceDisplay, display)) throw new IllegalArgumentException("任务身份无效");
+        return new RecentTasks.Task(id, sourceDisplay, userId, component.flattenToString(), component.getPackageName(), false);
     }
     private RecentTasks.Task requested(int display, String request) throws Exception {
         if (request == null || request.length() > 2048) throw new IllegalArgumentException("任务请求无效");
@@ -58,22 +59,25 @@ final class SystemRecentTasks {
         if (display == null || !display.isValid() || display.getState() != Display.STATE_ON || context.getSystemService(KeyguardManager.class).isKeyguardLocked()) throw new IllegalStateException("目标外屏已改变、息屏或锁定");
     }
     List<RecentTasks.Task> read(int display) throws Exception {
+        return read(display, false);
+    }
+    List<RecentTasks.Task> read(int display, boolean page) throws Exception {
         checkDisplay(display);
-        Object slice = contract.getMethod("getRecentTasks", int.class, int.class, int.class).invoke(service, 100, 0, userId);
+        Object slice = contract.getMethod("getRecentTasks", int.class, int.class, int.class).invoke(service, RecentTasks.TASK_LIMIT, 0, userId);
         List<?> source = (List<?>) Class.forName("android.content.pm.ParceledListSlice").getMethod("getList").invoke(slice);
-        complete = source.size() < 100;
+        complete = source.size() < RecentTasks.TASK_LIMIT;
         List<RecentTasks.Task> result = new ArrayList<>();
         for (Object object : source) {
             TaskInfo task = (TaskInfo) object;
             int taskDisplay = TaskInfo.class.getField("displayId").getInt(task), taskUser = TaskInfo.class.getField("userId").getInt(task);
-            if (taskDisplay != display || taskUser != userId || task.taskId < 0) continue;
+            if (!(page ? RecentTasks.inPage(taskDisplay, display) : taskDisplay == display) || taskUser != userId || task.taskId < 0) continue;
             int type = (int) TaskInfo.class.getMethod("getActivityType").invoke(task);
             if (type != 0 && type != 1) continue; // Never expose launcher, recents or assistant tasks.
             ComponentName component = task.baseIntent == null ? null : task.baseIntent.getComponent();
+            if (component == null) component = task.baseActivity;
             if (component == null || component.getPackageName().equals(context.getPackageName()) || component.getPackageName().equals("com.android.systemui")) continue;
             boolean visible = TaskInfo.class.getField("isVisible").getBoolean(task);
             result.add(new RecentTasks.Task(task.taskId, taskDisplay, taskUser, component.flattenToString(), component.getPackageName(), visible));
-            if (result.size() == 32) { complete = false; break; }
         }
         return result;
     }
@@ -81,30 +85,34 @@ final class SystemRecentTasks {
         return execute(display, request, clear, false);
     }
     JSONObject execute(int display, String request, boolean clear, boolean explicit) throws Exception {
-        List<RecentTasks.Task> before = read(display), targets = new ArrayList<>(), accepted = new ArrayList<>();
+        return execute(display, request, clear, explicit, explicit);
+    }
+    JSONObject execute(int display, String request, boolean clear, boolean explicit, boolean page) throws Exception {
+        List<RecentTasks.Task> before = read(display, page), targets = new ArrayList<>(), accepted = new ArrayList<>();
         int requestedCount = 0;
         if (clear) {
             requirePermission("android.permission.REMOVE_TASKS");
-            if (request == null || request.length() > 16384) throw new IllegalArgumentException("清理请求过大");
+            if (request == null || request.length() > 65536) throw new IllegalArgumentException("清理请求过大");
             JSONArray items = new JSONArray(request);
-            if (items.length() < 1 || items.length() > 32) throw new IllegalArgumentException("清理数量无效");
+            if (items.length() < 1 || items.length() > RecentTasks.TASK_LIMIT) throw new IllegalArgumentException("清理数量无效");
             requestedCount = items.length();
             Set<Integer> ids = new HashSet<>();
             for (int i = 0; i < items.length(); i++) {
                 RecentTasks.Task expected = requested(display, items.getJSONObject(i));
+                if (!explicit && expected.displayId() != display) throw new IllegalArgumentException("Dock 只能清理所选外屏任务");
                 if (!ids.add(expected.id())) throw new IllegalArgumentException("重复任务");
                 if (before.stream().anyMatch(task -> RecentTasks.canDismiss(expected, task, explicit))) targets.add(expected);
             }
             Method remove = contract.getMethod("removeTask", int.class);
             for (RecentTasks.Task expected : targets) {
                 // Re-read just before every mutation: task IDs can be reused or moved to another display.
-                List<RecentTasks.Task> current = read(display);
+                List<RecentTasks.Task> current = read(display, page);
                 if (current.stream().anyMatch(task -> RecentTasks.canDismiss(expected, task, explicit)) && Boolean.TRUE.equals(remove.invoke(service, expected.id()))) accepted.add(expected);
             }
         }
-        List<RecentTasks.Task> after = clear ? read(display) : before;
+        List<RecentTasks.Task> after = clear ? read(display, page) : before;
         int removed = 0;
-        for (RecentTasks.Task expected : accepted) if (after.stream().noneMatch(task -> RecentTasks.sameTask(expected, task))) removed++;
+        for (RecentTasks.Task expected : accepted) if (after.stream().noneMatch(task -> RecentTasks.sameIdentity(expected, task))) removed++;
         JSONArray rows = new JSONArray(); for (RecentTasks.Task task : after) rows.put(json(task));
         return new JSONObject().put("tasks", rows).put("complete", complete).put("removed", removed).put("retained", requestedCount - removed)
             .put("canOpen", available("android.permission.START_TASKS_FROM_RECENTS", "startActivityFromRecents", int.class, Bundle.class))
@@ -115,20 +123,23 @@ final class SystemRecentTasks {
         RecentTasks.Task expected = requested(display, request);
         requirePermission("android.permission.START_TASKS_FROM_RECENTS");
         Method start = contract.getMethod("startActivityFromRecents", int.class, Bundle.class);
-        if (read(display).stream().noneMatch(task -> RecentTasks.sameTask(expected, task))) return new JSONObject().put("state", "gone");
-        // Restore this exact task. Never launch its MAIN activity or migrate a task from another display.
+        if (read(display, true).stream().noneMatch(task -> RecentTasks.sameTask(expected, task))) return new JSONObject().put("state", "gone");
+        // An explicit card click restores the same task onto the selected secondary display.
+        checkDisplay(display);
         int result = (int) start.invoke(service, expected.id(), ActivityOptions.makeBasic().setLaunchDisplayId(display).toBundle());
         if (result < 0) throw new IllegalStateException("系统拒绝恢复任务：" + result);
         for (int attempt = 0; attempt < 6; attempt++) {
-            if (read(display).stream().anyMatch(task -> RecentTasks.sameTask(expected, task) && task.visible())) return new JSONObject().put("state", "opened");
+            if (read(display, true).stream().anyMatch(task -> RecentTasks.restored(expected, task, display))) return new JSONObject().put("state", "opened");
             if (attempt < 5) Thread.sleep(100); // Bounded verification on the Shizuku worker, never the UI thread.
         }
         return new JSONObject().put("state", "unconfirmed");
     }
     Bundle snapshot(int display, String request) throws Exception {
         RecentTasks.Task expected = requested(display, request);
+        checkDisplay(display);
+        if (expected.displayId() != display) { Bundle icon = new Bundle(); icon.putString("message", "点击切到外屏"); return icon; }
         requirePermission("android.permission.READ_FRAME_BUFFER");
-        RecentTasks.Task current = read(display).stream().filter(task -> RecentTasks.sameTask(expected, task)).findFirst().orElseThrow(() -> new IllegalStateException("任务已改变"));
+        RecentTasks.Task current = read(display, true).stream().filter(task -> RecentTasks.sameTask(expected, task)).findFirst().orElseThrow(() -> new IllegalStateException("任务已改变"));
         Object snapshot = null;
         // One on-demand foreground snapshot. updateCache=true preserves the system's app-theme/secure rules.
         if (current.visible() && available("android.permission.READ_FRAME_BUFFER", "takeTaskSnapshot", int.class, boolean.class)) snapshot = contract.getMethod("takeTaskSnapshot", int.class, boolean.class).invoke(service, expected.id(), true);
@@ -149,7 +160,7 @@ final class SystemRecentTasks {
             scaled = Bitmap.createScaledBitmap(wrapped, Math.max(1, Math.round(wrapped.getWidth() * scale)), Math.max(1, Math.round(wrapped.getHeight() * scale)), true);
             copy = scaled.copy(Bitmap.Config.ARGB_8888, false);
             // Revalidate after the potentially slow snapshot read. Secure/system theme snapshots stay placeholders.
-            if (read(display).stream().noneMatch(task -> RecentTasks.sameTask(expected, task))) return result;
+            if (read(display, true).stream().noneMatch(task -> RecentTasks.sameTask(expected, task))) return result;
             result.putParcelable("bitmap", copy); copy = null; result.putString("message", "上次画面");
             return result;
         } finally {

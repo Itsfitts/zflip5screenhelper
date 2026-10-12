@@ -8,11 +8,18 @@ import java.util.Set;
 /** In-memory task identity and selection policy, shared by the UI and privileged boundary. */
 final class RecentTasks {
     static final int DOCK_APP_LIMIT = 4;
+    static final int TASK_LIMIT = 100;
     record Task(int id, int displayId, int userId, String component, String packageName, boolean visible) { }
-    static boolean sameTask(Task expected, Task current) {
-        return expected.id == current.id && expected.displayId > 0 && expected.displayId == current.displayId
-            && expected.userId == current.userId && expected.component.equals(current.component) && expected.packageName.equals(current.packageName);
+    /** Detached recent tasks use display -1; never confuse their source with the launch target. */
+    static boolean inPage(int sourceDisplay, int targetDisplay) { return targetDisplay > 0 && (sourceDisplay == -1 || sourceDisplay == 0 || sourceDisplay == targetDisplay); }
+    static boolean sameIdentity(Task expected, Task current) {
+        return expected.id >= 0 && expected.id == current.id && expected.userId == current.userId
+            && expected.component.equals(current.component) && expected.packageName.equals(current.packageName);
     }
+    static boolean sameTask(Task expected, Task current) {
+        return expected.displayId >= -1 && expected.displayId == current.displayId && sameIdentity(expected, current);
+    }
+    static boolean restored(Task expected, Task current, int targetDisplay) { return targetDisplay > 0 && current.displayId == targetDisplay && current.visible && sameIdentity(expected, current); }
     static boolean canClear(Task expected, Task current) { return sameTask(expected, current) && !current.visible; }
     static boolean canDismiss(Task expected, Task current, boolean explicit) { return sameTask(expected, current) && (explicit || !current.visible); }
     static String key(Task task) { return task.displayId + ":" + task.userId + ":" + task.id + ":" + task.component; }
@@ -36,7 +43,10 @@ final class RecentTasks {
             List<Task> result = new ArrayList<>(); for (Task task : tasks) if (!contains(task)) result.add(task); return List.copyOf(result);
         }
         void reconcile(int display, int user, List<Task> current, boolean complete) {
-            locked.values().removeIf(old -> old.displayId == display && old.userId == user
+            reconcile(display, user, current, complete, false);
+        }
+        void reconcile(int display, int user, List<Task> current, boolean complete, boolean page) {
+            locked.values().removeIf(old -> (page ? inPage(old.displayId, display) : old.displayId == display) && old.userId == user
                 && current.stream().noneMatch(task -> sameTask(old, task))
                 && (complete || current.stream().anyMatch(task -> task.id == old.id)));
         }

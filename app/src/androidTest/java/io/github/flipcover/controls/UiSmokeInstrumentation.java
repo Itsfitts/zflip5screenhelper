@@ -70,6 +70,8 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("panel-actions")) { result.putString("result", new InterfaceCardChecks(this).runPanelActions()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-blank-tap")) { result.putString("result", new InterfaceCardChecks(this).runBlankTaps()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("home-return")) { result.putString("result", new HomeReturnChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("system-recents")) { result.putString("result", new SystemRecentsChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("settings-tasks")) { result.putString("result", new SettingsTaskChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-glass")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-glass-tabs")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runOriginalTabs()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("recent-tasks-glass")) { result.putString("result", new RecentTasksGlassChecks(this,expectedRotation).run()); finish(Activity.RESULT_OK, result); return; }
@@ -77,6 +79,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("task-close-failure")) { result.putString("result", new TaskForceChecks(this).runCloseFailure()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("task-requests")) { result.putString("result", new TaskRequestChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("task-restore")) { result.putString("result", new TaskRestoreChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("task-page-scope")) { result.putString("result", new TaskPageScopeChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("detail-motion")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runMotionChecks()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("detail-content")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runContentChecks()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-glass-capture")) { result.putString("result", new PanelGlassChecks(this,expectedRotation).runCaptureChecks()); finish(Activity.RESULT_OK, result); return; }
@@ -84,6 +87,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("diagnostic-refresh")) { result.putString("result", new DiagnosticsChecks(this, expectedRotation).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("control-states")) { result.putString("result", new ControlStateChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("connectivity")) { result.putString("result", new ConnectivityChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("app-display-size")) { result.putString("result", new AppDisplaySizeChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("settings-update-actions")) { if (expectedRotation >= 0) require(getUiAutomation().setRotation(expectedRotation), "settings update rotation accepted"); result.putString("result", new SettingsUpdateActionsChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("app-update")) { result.putString("result", new AppUpdateChecks().run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("configuration")) { result.putString("result", new ConfigurationChecks(this).run()); finish(Activity.RESULT_OK, result); return; }

@@ -18,6 +18,7 @@ public final class ShellService extends IShellService.Stub {
     private long lastWifiScan;
     private SystemConnectivity connectivity;
     private SystemSwitches switches;
+    private SystemAppPortrait portrait;
     private SystemSwitches switches() { if (switches == null) switches = new SystemSwitches(); return switches; }
     private SystemConnectivity connectivity() { if (connectivity == null) connectivity = new SystemConnectivity(ownerContext); return connectivity; }
     @Override public synchronized void watchConnectivity(IConnectivityListener listener) { checkCaller(); connectivity().watch(listener); }
@@ -37,14 +38,17 @@ public final class ShellService extends IShellService.Stub {
                 case "states" -> states(displayId);
                 case "system_controls" -> systemControls(value);
                 case "location" -> location(displayId, value);
+                case "app_display_read", "app_display_write" -> appDisplay(displayId, operation.equals("app_display_write"), component);
+                case "app_portrait_open", "app_portrait_close" -> appPortrait(displayId, operation.equals("app_portrait_open"), component);
                 case "wifi_details" -> wifiDetails(value);
                 case "connectivity_states", "nfc_details", "hotspot_details", "nfc", "hotspot", "nfc_secure", "hotspot_config" -> connectivity().execute(operation, displayId, value, component);
                 case "wifi", "bluetooth", "data", "airplane", "dnd" -> switchSetting(operation, displayId, value);
                 case "tile_add", "tile_click" -> tile(operation, component);
                 case "diagnostics" -> diagnostics(displayId);
-                case "recent_tasks", "recent_clear", "recent_dismiss" -> recentTasks(displayId, component, !operation.equals("recent_tasks"), operation.equals("recent_dismiss"));
+                case "recent_tasks", "recent_page", "recent_clear", "recent_dismiss" -> recentTasks(displayId, component, operation.equals("recent_clear") || operation.equals("recent_dismiss"), operation.equals("recent_dismiss"), operation.equals("recent_page") || operation.equals("recent_dismiss"));
                 case "recent_open" -> reply(true, "任务恢复结果", new SystemRecentTasks(ownerContext, ownerUid).open(displayId, component).toString());
                 case "native_home" -> nativeHome(displayId);
+                case "system_recents" -> systemRecents(displayId);
                 default -> reply(false, "不支持的操作", "");
             };
         } catch (Exception e) {
@@ -57,8 +61,8 @@ public final class ShellService extends IShellService.Stub {
         try { return new SystemRecentTasks(ownerContext, ownerUid).snapshot(displayId, task); }
         catch (Exception error) { android.os.Bundle result = new android.os.Bundle(); result.putString("message", "预览不可用"); return result; }
     }
-    private String recentTasks(int display, String request, boolean clear, boolean explicit) throws Exception {
-        JSONObject result = new SystemRecentTasks(ownerContext, ownerUid).execute(display, request, clear, explicit);
+    private String recentTasks(int display, String request, boolean clear, boolean explicit, boolean page) throws Exception {
+        JSONObject result = new SystemRecentTasks(ownerContext, ownerUid).execute(display, request, clear, explicit, page);
         String message = clear ? "已从系统移除 " + result.getInt("removed") + " 个任务" + (result.getInt("retained") > 0 ? "，部分任务仍保留" : "") : "已同步外屏最近任务";
         return reply(true, message, result.toString());
     }
@@ -104,17 +108,55 @@ public final class ShellService extends IShellService.Stub {
     }
     private String nativeHome(int display) throws Exception {
         activeSecondaryDisplay(display);
+        if (portrait != null) portrait.close();
         // Fixed component and owner user only; callers cannot supply an intent or shell command.
         Output result = run("am", "start", "-W", "--user", String.valueOf(ownerUid / 100000), "--display", String.valueOf(display), "-n", "com.android.systemui/.subscreen.SubHomeActivity", "-f", "0x10000000");
         activeSecondaryDisplay(display);
         boolean accepted = result.ok() && result.text.contains("Status: ok") && result.text.contains("Activity: com.android.systemui/.subscreen.SubHomeActivity");
         return reply(accepted, accepted ? "已返回三星原生卡片" : "三星未确认返回原生卡片，请重试", result.text);
     }
+    private String systemRecents(int display) throws Exception {
+        activeSecondaryDisplay(display);
+        // Fixed Samsung component, selected display and owner user; never restart the launcher.
+        String component = "com.sec.android.app.launcher/com.android.quickstep.RecentsActivity";
+        Output result = run("am", "start", "-W", "--user", String.valueOf(ownerUid / 100000), "--display", String.valueOf(display), "-n", component);
+        activeSecondaryDisplay(display);
+        boolean accepted = result.ok() && result.text.contains("Status: ok") && result.text.contains("Activity: " + component);
+        return reply(accepted, accepted ? "已请求在外屏打开系统最近任务" : "三星未接受最近任务请求，请重试或使用外屏多任务", result.text);
+    }
     private void activeSecondaryDisplay(int id) {
         secondary(id);
         if (ownerContext == null) throw new IllegalStateException("外屏服务未就绪");
         android.view.Display target = ownerContext.getSystemService(android.hardware.display.DisplayManager.class).getDisplay(id);
         if (target == null || !target.isValid() || target.getState() != android.view.Display.STATE_ON || ownerContext.getSystemService(android.app.KeyguardManager.class).isKeyguardLocked()) throw new IllegalStateException("目标外屏已改变、息屏或锁定");
+    }
+    private String appPortrait(int display, boolean open, String request) throws Exception {
+        secondary(display);
+        if (request == null || request.length() > 8192) throw new IllegalArgumentException("Invalid portrait request");
+        if (open) {
+            activeSecondaryDisplay(display);
+            JSONObject read = new JSONObject(appDisplay(display, false, request));
+            if (!read.optBoolean("ok") || !new JSONObject(read.getString("output")).optString("state").equals("ready")) return reply(false, "清晰竖屏暂不可用，请检查外屏授权和应用显示大小设置", "");
+            if (portrait == null) portrait = new SystemAppPortrait(ownerContext, ownerUid);
+            portrait.open(display, request);
+        } else if (portrait != null) portrait.close(request);
+        return reply(true, open ? "已提交清晰竖屏启动" : "已关闭清晰竖屏区域", "");
+    }
+    private String appDisplay(int display, boolean write, String request) throws Exception {
+        secondary(display);
+        return SystemAppDisplay.execute(ownerContext, ownerUid, display, write, request, new SystemAppDisplay.Settings() {
+            public String read(String key) throws Exception {
+                Output output = run(65536, "settings", "--user", String.valueOf(ownerUid / 100000), "get", "secure", key);
+                if (!output.ok() || output.text.length() >= 60001) throw new IllegalStateException("Unable to read cover policy");
+                String value = output.text.endsWith("\n") ? output.text.substring(0, output.text.length() - 1) : output.text;
+                return value.equals("null") ? null : value;
+            }
+            public void write(String key, String value) throws Exception {
+                if (!AppDisplayPolicy.KEY.equals(key)) throw new SecurityException("Not a cover size policy");
+                Output output = value == null ? run("settings", "--user", String.valueOf(ownerUid / 100000), "delete", "secure", key) : run("settings", "--user", String.valueOf(ownerUid / 100000), "put", "secure", key, value);
+                if (!output.ok()) throw new IllegalStateException("Unable to write cover policy");
+            }
+        });
     }
     private String states(int display) throws Exception {
         JSONObject values = new JSONObject();
@@ -262,6 +304,6 @@ public final class ShellService extends IShellService.Stub {
     }
     @Override public void destroy() {
         int caller = Binder.getCallingUid();
-        if (caller == ownerUid || caller == 0 || caller == 2000) System.exit(0);
+        if (caller == ownerUid || caller == 0 || caller == 2000) { if (portrait != null) portrait.close(); System.exit(0); }
     }
 }

@@ -161,6 +161,19 @@ public final class Prefs {
     void reverseLandscapeRotation(boolean value) { data.edit().putBoolean("rotation_reverse_landscape", value).apply(); }
     boolean reverseLandscapeLayout(int rotation) { return reverseLandscapeRotation() && (rotation == 1 || rotation == 3); }
     JSONObject rotationRules() { try { return new JSONObject(data.getString("app_rotations", "{}")); } catch (JSONException e) { return new JSONObject(); } }
+    // Device/system snapshots stay local; configuration import/export must not copy them.
+    JSONObject displaySizeRules() { try { return new JSONObject(data.getString("app_display_sizes", "{}")); } catch (JSONException e) { return new JSONObject(); } }
+    JSONObject displaySizeRule(String name) { return displaySizeRules().optJSONObject(name); }
+    boolean appPortrait(String name) { JSONObject rule = displaySizeRule(name); return rule != null && rule.optBoolean("portrait"); }
+    String appPortraitRatio(String name) { JSONObject rule = displaySizeRule(name); String ratio = rule == null ? "" : rule.optString("portraitRatio"); return AppPortraitBounds.RATIOS.contains(ratio) ? ratio : AppPortraitBounds.DEFAULT_RATIO; }
+    boolean hasAppPortraitRule(String name) { JSONObject rule = displaySizeRule(name); return rule != null && rule.has("portrait"); }
+    void saveDisplaySizeRule(String name, JSONObject rule) throws JSONException {
+        AppDisplayPolicy.packageName(name); JSONObject rules = displaySizeRules();
+        if (rule == null) rules.remove(name); else rules.put(name, rule);
+        if (rules.length() > 200 || rules.toString().length() > 262144) throw new IllegalArgumentException("应用显示配置过多");
+        if (!data.edit().putString("app_display_sizes", rules.toString()).commit()) throw new IllegalStateException("未能保存恢复记录");
+    }
+    int displaySizeCount() { JSONObject rules = displaySizeRules(); int count = 0; java.util.Iterator<String> names = rules.keys(); while (names.hasNext()) { JSONObject rule = rules.optJSONObject(names.next()); if (rule != null && (rule.optBoolean("portrait") || !rule.optString("original").equals(rule.optString("applied")))) count++; } return count; }
     public int appRotation(String packageName) { int value = rotationRules().optInt(packageName, -1); return value >= 0 && value <= 4 ? value : -1; }
     void saveAppRotation(String packageName, int value) throws JSONException {
         JSONObject rules = rotationRules(); if (value == -1) rules.remove(packageName); else rules.put(packageName, value);

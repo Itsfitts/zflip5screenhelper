@@ -45,6 +45,12 @@ def parameters = [
     'defaults.launcher.locked': ['boolean'],
     'defaults.launcher.compact': ['boolean'],
     'appearance.settings.baseScale': ['float', 0.5, 1],
+    'appearance.appDisplay.smallerRatio': ['float', 0.7, 0.95],
+    'appearance.appDisplay.smallRatio': ['float', 0.8, 0.99],
+    'appearance.appDisplay.largeRatio': ['float', 1.01, 1.2],
+    'appearance.appDisplay.largerRatio': ['float', 1.05, 1.3],
+    'appearance.appDisplay.referenceDpi': ['int', 240, 640],
+    'appearance.appDisplay.referenceScale': ['float', 0.5, 4],
     'appearance.launcher.labelDp': ['int', 6, 16],
     'appearance.launcher.compactIconDp': ['int', 12, 64],
     'appearance.launcher.normalIconDp': ['int', 12, 64],
@@ -139,4 +145,7 @@ def launcher = config.appearance.launcher
 if (!(config.defaults.dock.pinnedAction in builtInActions)) throw new GradleException('Unknown defaults.dock.pinnedAction')
 if (launcher.railIconDp > launcher.railWidthDp || launcher.railFramePaddingDp * 2 >= launcher.railWidthDp || launcher.folderMemberIconDp > launcher.folderMemberHeightDp || launcher.dockIconDp > launcher.dockRowDp || launcher.dockAppsIconDp > launcher.dockRowDp || launcher.dockClearIconDp > launcher.dockRowDp) throw new GradleException('app-config launcher icons/padding do not fit their surfaces')
 if (config.appearance.glass.softBlurDp > config.appearance.glass.strongBlurDp) throw new GradleException('app-config soft blur exceeds strong blur')
+def displaySize = config.appearance.appDisplay
+if (displaySize.smallerRatio >= displaySize.smallRatio || displaySize.largeRatio >= displaySize.largerRatio || displaySize.referenceDpi / displaySize.referenceScale * displaySize.smallerRatio < 120 || displaySize.referenceDpi / displaySize.referenceScale * displaySize.largerRatio > 480) throw new GradleException('app-config application size presets must be ordered and inside editable bounds')
+if (displaySize.referenceScale == 1 || displaySize.referenceScale / displaySize.smallerRatio > 4 || displaySize.referenceScale / displaySize.largerRatio < 0.5) throw new GradleException('app-config application size presets exceed compatibility scale bounds')
 ext.appConfigValues = config

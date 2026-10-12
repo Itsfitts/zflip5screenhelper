@@ -33,6 +33,7 @@ final class AppHubView extends PanelSurface {
         default void settings() { }
         default void beginDismissal() { }
         default void applicationSettings(String id, boolean uninstall) { }
+        default void displaySize(String id) { }
         default void refreshRecents() { }
         default void clearRecents(List<RecentTasks.Task> tasks) { }
         default void clearTaskPage(List<RecentTasks.Task> tasks) { clearRecents(tasks); }
@@ -443,6 +444,7 @@ final class AppHubView extends PanelSurface {
         if (owner != null) menu.add("定位到：" + grid.layoutSnapshot().folder(owner).name(), () -> workspaceTools.locate(id));
         menu.add("设置别名 / 搜索别名", !prefs.workspaceLocked(), () -> workspaceTools.alias(id));
         menu.add("应用详情（系统页）", () -> listener.applicationSettings(id, false));
+        menu.add(getContext().getString(R.string.display_size_title), () -> listener.displaySize(id));
         menu.add("卸载应用（系统确认）", () -> listener.applicationSettings(id, true));
         if (grid.editable() && grid.layoutSnapshot().slot(id) >= 0) {
             menu.add("移动到…", () -> { AppWorkspaceTools.Actions moves = workspaceTools.actions("移动 " + label(id), () -> appMenu(anchor, id)); int position = grid.projected().slot(id);
@@ -500,7 +502,8 @@ final class AppHubView extends PanelSurface {
     }
     void recentResult(List<RecentTasks.Task> result, String message, boolean complete) {
         recentComplete = complete;
-        CoverApp.launcherWidgets(getContext()).recent(result, canOpen, canClear);
+        List<RecentTasks.Task> dockTasks = coverTasks(result);
+        CoverApp.launcherWidgets(getContext()).recent(dockTasks, canOpen, canClear);
         recentBusy = false; recentFailed = false; refreshDelay = 3000; boolean changed = !tasks.equals(result) || !shownPins.equals(prefs.hubPins()); recentKnown = true; tasks = List.copyOf(result); String status = message == null ? AppLauncherModel.recentStatus(prefs.hubPins().size(), RecentTasks.apps(tasks, pinnedPackages()).size()) : message; if (!status.contentEquals(recentStatus.getText())) recentStatus.setText(status);
         taskMessage = message != null ? message : !canOpen ? "系统不支持返回原任务" : !canClear ? "可切换，系统未开放关闭权限" : canSnapshot ? "左右切换 · 点击返回原窗口" : "图标模式 · 点击返回原窗口";
         recentStatus.setContentDescription(recentStatus.getText());
@@ -511,6 +514,10 @@ final class AppHubView extends PanelSurface {
     }
     void recentFailure(String reason) { CoverApp.launcherWidgets(getContext()).recentFailure(reason); recentBusy = false; recentKnown = false; recentFailed = true; refreshDelay = 15000; taskMessage = reason; String status = tasks.isEmpty() ? "最近任务不可用 · 点击重试" : "同步失败 · 上次结果不可操作"; if (!status.contentEquals(recentStatus.getText())) recentStatus.setText(status); recentStatus.setContentDescription(reason); recentBusy(false); }
     private void syncTaskPage() { if (taskPage != null) taskPage.data(tasks, recentKnown, recentComplete, recentBusy, canOpen, canClear, canSnapshot, taskMessage); }
+    private List<RecentTasks.Task> coverTasks(List<RecentTasks.Task> source) {
+        android.view.Display selected = Displays.selected(getContext(), prefs);
+        return selected == null ? List.of() : source.stream().filter(task -> task.displayId() == selected.getDisplayId()).collect(java.util.stream.Collectors.toList());
+    }
     boolean showingTasks() { return taskPage != null; }
     RecentTasks.Task selectedTask() { return taskPage == null ? null : taskPage.selectedTask(); }
     void selectTask(RecentTasks.Task task) { pendingSelection = task; if (taskPage != null && recentKnown) { taskPage.select(task); pendingSelection = null; } }
@@ -542,7 +549,7 @@ final class AppHubView extends PanelSurface {
                 public void snapshot(RecentTasks.Task task, java.util.function.Consumer<ShizukuBridge.Snapshot> callback) { listener.snapshot(task, callback); }
             });
             appContent.setVisibility(GONE); dockHost.setVisibility(GONE); addView(taskPage, 0, new LayoutParams(-1, 0, 1)); syncTaskPage();
-        } else { taskPage.dispose(); removeView(taskPage); taskPage = null; appContent.setVisibility(VISIBLE); dockHost.setVisibility(VISIBLE); if (prefs.hubSort().equals("recent")) filter(); recentBusy(recentBusy); }
+        } else { taskPage.dispose(); removeView(taskPage); taskPage = null; tasks = coverTasks(tasks); appContent.setVisibility(VISIBLE); dockHost.setVisibility(VISIBLE); if (prefs.hubSort().equals("recent")) filter(); recentBusy(recentBusy); }
         listener.taskPageChanged(taskPage);
         if (taskPage != null && !listener.managesTaskEntrance()) revealTasks(taskPage);
     }

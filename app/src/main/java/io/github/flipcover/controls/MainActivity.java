@@ -6,6 +6,7 @@ import android.app.ActivityOptions;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -36,12 +37,21 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
+    /** Keep a separate settings document for each explicitly requested cover display. */
+    static void startOnDisplay(Context context, Intent request, int displayId) {
+        if (displayId <= Display.DEFAULT_DISPLAY) throw new IllegalArgumentException("Settings require a cover display");
+        // Document identity is per display, never per settings page or application.
+        Intent intent = new Intent(request).setData(android.net.Uri.parse("flipcover-settings://display/" + displayId)).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        Bundle options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId).toBundle();
+        context.startActivity(intent, options);
+    }
     private Prefs prefs;
     private LinearLayout body, outer, statusPreviewHost, panelPreviewHost;
     private ScrollView scroll;
     private FrameLayout rootLayer;
     private DetailSheet sheet;
     private UpdateSettings updateSettings;
+    private AppDisplaySettings appDisplaySettings;
     private TextView statusLabel;
     private StatusBarView statusPreview;
     private boolean panelPreviewExpanded, bindingUI;
@@ -83,16 +93,32 @@ public final class MainActivity extends Activity {
         showRoute(route);
         if (pendingImportUri != null) readImport(android.net.Uri.parse(pendingImportUri));
     }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        String page = intent.getStringExtra("section"), targetPackage = intent.getStringExtra("orientation_package");
+        if (page == null || page.equals(route) && (!(page.equals("app_orientation") || page.equals("app_display_size")) || java.util.Objects.equals(targetPackage, orientationPackage))) return;
+        Runnable navigate = () -> {
+            setIntent(intent); pendingImportUri = null; importRequest++;
+            if (appDisplaySettings != null) appDisplaySettings.discardDraft();
+            if (orderList != null) { orderList.cancelDrag(); orderList = null; }
+            draft = null; draftKind = null; orderState = new Bundle();
+            orientationPackage = targetPackage; orientationTitle = targetPackage; showRoute(page);
+        };
+        if (appDisplaySettings != null && appDisplaySettings.hasDraft() || draft != null && !draft.equals(savedActions(draftKind))) confirm("放弃这次编辑？", "尚未完成的修改不会保存。", "放弃并继续", navigate);
+        else navigate.run();
+    }
     @Override protected void onResume() {
         super.onResume(); main.removeCallbacks(statusRefresh); main.post(statusRefresh); CoverApp.bridge(this).connect();
         prefs.data.registerOnSharedPreferenceChangeListener(modeChanged); syncDockModeSetting();
         if (updateSettings != null) updateSettings.refresh();
+        if (appDisplaySettings != null) appDisplaySettings.resume();
         if (statusPreview != null && statusPreviewHost != null && statusPreview.getParent() == null) statusPreviewHost.addView(statusPreview, new LinearLayout.LayoutParams(-1, statusPreview.heightPixels()));
     }
     @Override protected void onPause() {
         prefs.data.unregisterOnSharedPreferenceChangeListener(modeChanged);
         main.removeCallbacks(statusRefresh);
         if (updateSettings != null) updateSettings.pause();
+        if (appDisplaySettings != null) appDisplaySettings.pause();
         if (orderList != null) orderList.cancelDrag();
         if (statusPreview != null && statusPreview.getParent() instanceof android.view.ViewGroup parent) parent.removeView(statusPreview);
         super.onPause();
@@ -123,6 +149,8 @@ public final class MainActivity extends Activity {
             case "hand" -> handSettings();
             case "orientations" -> applicationList(true);
             case "app_orientation" -> { if (orientationPackage == null) applicationList(true); else appOrientation(); }
+            case "display_sizes" -> displaySizeApplications();
+            case "app_display_size" -> { if (orientationPackage == null) displaySizeApplications(); else appDisplaySize(); }
             case "hub" -> hubSettings();
             case "launch_compatibility" -> launchCompatibility();
             case "input_devices" -> { begin("鼠标与触控板", "input_devices"); body.addView(new InputDevicePanel(this, false, null)); }
@@ -140,6 +168,7 @@ public final class MainActivity extends Activity {
     }
     private final InputNavigation.Memory inputMemory = new InputNavigation.Memory();
     private void begin(String title, String page) {
+        if (appDisplaySettings != null) { appDisplaySettings.pause(); appDisplaySettings = null; }
         if (updateSettings != null) { updateSettings.close(); updateSettings = null; }
         saveLibraryState(); renderedLibrary = null;
         if (orderList != null) { orderState = orderList.saveState(); orderList.cancelDrag(); orderList = null; }
@@ -168,6 +197,7 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() { if (rootLayer instanceof InputSurface input) input.cancelCommand(); else back(); }
     private void back() {
         if (sheet != null) { dismissSheet(); return; }
+        if (appDisplaySettings != null && appDisplaySettings.hasDraft()) { confirm(getString(R.string.display_size_discard_title), getString(R.string.display_size_discard_message), getString(R.string.display_size_discard), this::popPage); return; }
         if (route.equals("order") && draft != null && !draft.equals(savedActions(draftKind))) {
             confirm("放弃这次编辑？", "尚未完成的顺序和增删不会保存。", "放弃更改", () -> { draft = null; draftKind = null; popPage(); }); return;
         }
@@ -200,6 +230,7 @@ public final class MainActivity extends Activity {
             new Setting("应用 Dock 与中心", "launch_compatibility", R.drawable.ic_ms_info, "兼容性说明", "阿田 阿田自用 阿田辅助 手势后台 快捷手势 打开手机以继续 内屏 外屏 应用启动失败 原生卡片编辑 文件夹 系统最近任务 外屏多任务 预览", () -> "应用启动、原生卡片与多任务"),
             new Setting("应用与小组件", "favorites", R.drawable.ic_ms_edit, "侧栏常用项", "收藏 工具 排序", () -> prefs.actions("favorites").size() + " 个常用项"),
             new Setting("应用与小组件", "orientations", R.drawable.ic_ms_screen_rotation, "应用方向", "旋转 横屏 竖屏 记忆", () -> prefs.rotationRules().length() + " 个应用规则"),
+            new Setting("应用与小组件", "display_sizes", R.drawable.ic_ms_tune, getString(R.string.display_size_title), "DPI dpi 大小 缩放 简单 高级 外屏", () -> getString(R.string.display_size_count, prefs.displaySizeCount())),
             new Setting("设备与权限", "display", R.drawable.ic_ms_phone_android, "目标外屏", "显示器 选择 屏幕", this::displaySummary),
             new Setting("设备与权限", "calibrate", R.drawable.ic_ms_display_settings, "屏幕适配", "缺口 角落 长度 厚度 校准", () -> prefs.data.getBoolean("auto_placement", true) ? "根据系统缺口定位" : "手动校准"),
             new Setting("设备与权限", "input_devices", R.drawable.ic_input_devices, "鼠标与触控板", "外接设备 蓝牙 输入 指针 方向 灵敏度", () -> CoverApp.inputs(this).enabled() ? "设备规则已开启" : "系统指针操作"),
@@ -386,6 +417,17 @@ public final class MainActivity extends Activity {
         begin("隐藏状态栏的应用", "status_apps");
         showApplications(new SettingsApplications(this, prefs, "status", pageState, null));
     }
+    private void displaySizeApplications() {
+        begin(getString(R.string.display_size_title), "display_sizes");
+        showApplications(new SettingsApplications(this, prefs, "display_sizes", pageState, entry -> { orientationPackage = entry.packageName(); orientationTitle = entry.label(); appDisplaySize(); }));
+    }
+    private void appDisplaySize() {
+        begin(getString(R.string.display_size_title), "app_display_size");
+        String title = orientationTitle == null ? orientationPackage : orientationTitle;
+        try { title = getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(orientationPackage, 0)).toString(); } catch (PackageManager.NameNotFoundException ignored) { }
+        appDisplaySettings = new AppDisplaySettings(this, prefs, orientationPackage, title, pageState, () -> showRoute("permissions"), this::confirm); body.addView(appDisplaySettings);
+        if (hasWindowFocus()) appDisplaySettings.resume();
+    }
     private void showApplications(SettingsApplications list) { outer.removeView(scroll); body = list; outer.addView(list, new LinearLayout.LayoutParams(-1, 0, 1)); }
     private void appOrientation() {
         begin("应用方向", "app_orientation"); LinearLayout entity = group("orientation-app"); entity.addView(SettingsUi.settingRow(this, R.drawable.ic_ms_phone_android, orientationTitle == null ? orientationPackage : orientationTitle, "下次从本工具打开时生效", null));
@@ -476,7 +518,7 @@ public final class MainActivity extends Activity {
         info.addView(SettingsUi.settingRow(this, 0, getString(R.string.settings_tested_devices), getString(R.string.settings_tested_devices_description), null));
         info.addView(SettingsUi.settingRow(this, 0, "阿田手势后台", "开启后，阿田自用或阿田辅助可能提示“打开手机以继续”；请在内屏打开阿田自用。", null));
         info.addView(SettingsUi.settingRow(this, 0, "原生卡片编辑", "请从快捷栏打开应用中心，编辑应用和文件夹。", null));
-        info.addView(SettingsUi.settingRow(this, 0, "系统最近任务", "可能显示在内屏；查看外屏任务请使用“外屏多任务”。", null));
+        info.addView(SettingsUi.settingRow(this, 0, "系统最近任务", "需 Shizuku，向三星系统请求在所选外屏打开；不支持时可使用“外屏多任务”。", null));
         info.addView(SettingsUi.settingRow(this, 0, "任务预览", "受保护页面可能没有预览，点应用卡片打开。", null));
     }
     private void library(String kind, boolean launchOnly) {

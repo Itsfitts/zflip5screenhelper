@@ -96,7 +96,7 @@ final class RecentTasksView extends LinearLayout implements ComponentCallbacks2 
             public void finish(boolean close) { if (close) listener.close(); else { panelProgress = 1; if (!listener.restoreMotion()) animate().translationX(0).translationY(0).setDuration(duration()).start(); } }
         }) { @Override protected float dismissalExtent() { return Math.max(1, InterfaceCard.horizontal(edge) ? RecentTasksView.this.getWidth() : RecentTasksView.this.getHeight()); } };
         addView(surface, new LayoutParams(-1, -1));
-        clear = smallIcon(R.drawable.ic_ms_close, "关闭全部未锁定外屏任务并退出", () -> dismiss(clearTargets())); clear.setTag("tasks-clear");
+        clear = smallIcon(R.drawable.ic_ms_close, "关闭列表中全部未锁定任务并退出（含内屏）", () -> dismiss(clearTargets())); clear.setTag("tasks-clear");
         clear.setBackground(Ui.ripple(context, 0xF21C2632, 1000));
         InputNavigation.bind(clear, "tasks-clear", InputNavigation.Region.CLEAR, clear::performClick, () -> showPageMenu(clear));
         FrameLayout stage = new FrameLayout(context); stage.setTag("tasks-stage"); surface.addView(stage, new LayoutParams(-1, 0, 1));
@@ -235,7 +235,7 @@ final class RecentTasksView extends LinearLayout implements ComponentCallbacks2 
         if (!busy && known && (state.startsWith("图标模式") || state.startsWith("左右切换"))) description = "↑关闭  ↓锁定";
         if (lostTask != null && !working()) description = "窗口已结束，长按可重新打开";
         setContentDescription(position + "，" + description + "，长按空白处刷新或返回全部应用");
-        int count = clearTargets().size(); clear.setContentDescription("关闭 " + count + " 个外屏任务并退出，包含使用中和固定应用，保留锁定任务"); clear.setTooltipText(clear.getContentDescription());
+        int count = clearTargets().size(); clear.setContentDescription("关闭列表中 " + count + " 个任务并退出，含内屏、使用中和固定应用，保留锁定任务"); clear.setTooltipText(clear.getContentDescription());
         ((View) clear.getParent()).setVisibility(known && complete && tasks.isEmpty() ? GONE : VISIBLE);
         clear.setEnabled(known && canClear && !working() && count > 0); clear.setAlpha(1);
         ((ImageView) clear).setImageTintList(android.content.res.ColorStateList.valueOf(clear.isEnabled() ? Ui.TEXT : 0xFFB8C3CF));
@@ -326,6 +326,7 @@ final class RecentTasksView extends LinearLayout implements ComponentCallbacks2 
         for (int rank = 0; rank < lastVisible() - firstVisible; rank++) {
             int index = rank == 0 ? selected : firstVisible + rank - 1; if (rank > 0 && index >= selected) index++;
             RecentTasks.Task task = tasks.get(index); String key = RecentTasks.key(task);
+            if (task.displayId() <= 0) continue; // Inner-screen and detached tasks are deliberately icon-only.
             int attempts = attempted.getOrDefault(key, 0); if (attempts > 0 && !retryPreviews.remove(key) || attempts >= 2 || previews.containsKey(key)) continue;
             attempted.put(key, attempts + 1);
             int token = generation; snapshotPending = true;
@@ -356,18 +357,17 @@ final class RecentTasksView extends LinearLayout implements ComponentCallbacks2 
         float layoutOffset, layoutVelocity;
         boolean assigning;
         RecentTasks.Task task;
-        final TextView name, caption;
+        final TextView name;
         final TaskPreviewView picture;
         final ImageView lockBadge;
         int position;
         Card(Context context) {
-            super(context); setOrientation(VERTICAL); setFocusable(true); setClipChildren(false); setClipToPadding(false);
+            super(context); setOrientation(VERTICAL); setFocusable(true); setClipChildren(false); setClipToPadding(false); setPadding(0, 0, 0, dp(20));
             FrameLayout label = new FrameLayout(context);
             name = Ui.heading(context, "", PanelUi.SECONDARY); name.setGravity(Gravity.CENTER); name.setSingleLine(); name.setEllipsize(TextUtils.TruncateAt.END); name.setPadding(dp(14), 0, dp(14), 0); label.addView(name, new FrameLayout.LayoutParams(-1, -1));
             lockBadge = new ImageView(context); lockBadge.setImageDrawable(Ui.icon(context, R.drawable.ic_ms_lock, 0xFFFFCE75)); lockBadge.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); label.addView(lockBadge, new FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER_VERTICAL | Gravity.END)); addView(label, new LayoutParams(-1, dp(24)));
             picture = new TaskPreviewView(context); picture.setDuplicateParentStateEnabled(true); addView(picture, new LayoutParams(-1, 0, 1));
-            caption = Ui.text(context, "", PanelUi.SECONDARY, 0xFFDCE3ED); caption.setGravity(Gravity.CENTER); caption.setSingleLine(); caption.setEllipsize(TextUtils.TruncateAt.END); caption.setPadding(0, dp(PanelUi.GAP), 0, 0); addView(caption, new LayoutParams(-1, dp(20)));
-            name.setShadowLayer(dp(1.5f), 0, dp(.5f), 0xCC101820); caption.setShadowLayer(dp(1.5f), 0, dp(.5f), 0xCC101820);
+            name.setShadowLayer(dp(1.5f), 0, dp(.5f), 0xCC101820);
             setOnClickListener(v -> { selected = position; open(task); });
             setOnLongClickListener(v -> {
                 if (!known || working()) return true;
@@ -387,19 +387,25 @@ final class RecentTasksView extends LinearLayout implements ComponentCallbacks2 
             if (task == null) return;
             String text = label(task); long count = tasks.stream().filter(item -> item.packageName().equals(task.packageName())).count();
             if (count > 1) { int ordinal = 0; for (int i = 0; i <= position; i++) if (tasks.get(i).packageName().equals(task.packageName())) ordinal++; text += " · " + ordinal; }
-            if (!text.contentEquals(name.getText())) name.setText(text);
-            ShizukuBridge.Snapshot preview = previews.get(RecentTasks.key(task)); Bitmap bitmap = preview == null ? null : preview.bitmap();
+            boolean inner = task.displayId() == 0;
+            if (inner) text += " (内屏)";
+            if (!text.contentEquals(name.getText())) {
+                android.text.SpannableString title = new android.text.SpannableString(text);
+                if (inner) title.setSpan(new android.text.style.RelativeSizeSpan(.72f), text.length() - 4, text.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                name.setText(title);
+            }
+            name.setEllipsize(inner ? TextUtils.TruncateAt.MIDDLE : TextUtils.TruncateAt.END);
+            ShizukuBridge.Snapshot preview = task.displayId() > 0 ? previews.get(RecentTasks.key(task)) : null; Bitmap bitmap = preview == null ? null : preview.bitmap();
             android.graphics.drawable.Drawable icon = cache.cachedIcon(getContext(), action(task));
             picture.content(bitmap, icon == null ? Ui.icon(getContext(), R.drawable.ic_ms_apps, Ui.ACCENT) : icon, !assigning);
             if (bitmap == null && icon == null && isAttachedToWindow()) cache.requestIcon(action(task));
             boolean locked = locks.contains(task);
-            String detail = closing(task) ? "正在关闭…" : locked ? "已锁定" : task.visible() ? "使用中" : pinnedPackages().contains(task.packageName()) ? "固定" : bitmap != null ? "上次画面" : "无画面预览";
-            if (!detail.contentEquals(caption.getText())) caption.setText(detail);
+            String detail = closing(task) ? "正在关闭…" : locked ? "已锁定" : task.displayId() <= 0 ? "点击切到外屏" : task.visible() ? "使用中" : pinnedPackages().contains(task.packageName()) ? "固定" : bitmap != null ? "上次画面" : "无画面预览";
             lockBadge.setVisibility(locked ? VISIBLE : GONE); setSelected(locked);
             if (glass != null && glass.active()) glass.bind(picture, GlassSurface.Role.TASK_PREVIEW);
             picture.glass(glassReady);
             picture.locked(locked);
-            setEnabled(known && !exiting && !closing(task)); setContentDescription(text + "，" + detail + "，点击返回原窗口，上滑关闭，下滑" + (locked ? "解锁" : "锁定") + "，长按更多操作");
+            setEnabled(known && !exiting && !closing(task)); setContentDescription(text + "，" + detail + "，点击在外屏恢复原窗口，上滑关闭，下滑" + (locked ? "解锁" : "锁定") + "，长按更多操作");
         }
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) { super.onInitializeAccessibilityNodeInfo(info); if (known && !working()) info.addAction(new AccessibilityNodeInfo.AccessibilityAction(LOCK_ACTION, locks.contains(task) ? "解锁此窗口" : "锁定此窗口")); if (clearable(task)) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_DISMISS); }
         @Override public boolean performAccessibilityAction(int action, android.os.Bundle args) { if (action == LOCK_ACTION && known && !working()) { toggleLock(task); return true; } if (action == AccessibilityNodeInfo.ACTION_DISMISS && clearable(task)) { dismissTask(task); return true; } return super.performAccessibilityAction(action, args); }

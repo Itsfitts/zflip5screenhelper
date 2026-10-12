@@ -167,12 +167,12 @@ final class AppDockChecks {
                         try {
                             RecentTasks.Task task = new RecentTasks.Task(1, virtual.getDisplay().getDisplayId(), 0, app.substring(4), ActionCatalog.component(app).getPackageName(), false);
                             replacement[0].recentBusy(true); replacement[0].dismiss(() -> { });
-                            owner[0].finishHubTask(replacement[0], task, new ShizukuBridge.Result(false, "closing failure", ""));
+                            owner[0].finishHubTask(replacement[0], task, task.displayId(), new ShizukuBridge.Result(false, "closing failure", ""));
                             require(!replacement[0].expanded() && !replacement[0].showingTasks() && !replacement[0].recentBusy(), "task failure during exit neither switches page nor leaves refresh busy"); replacement[0].reopen();
                             java.lang.reflect.Field animation = AppHubView.class.getDeclaredField("revealAnimation"); animation.setAccessible(true); android.animation.ValueAnimator reopening = (android.animation.ValueAnimator) animation.get(replacement[0]); if (reopening != null) reopening.end();
-                            owner[0].finishHubTask(launched[0], task, new ShizukuBridge.Result(false, "stale failure", "")); require(hubField.get(owner[0]) == replacement[0], "old task failure cannot alter rebuilt UI");
-                            owner[0].finishHubTask(launched[0], task, new ShizukuBridge.Result(true, "", "{\"state\":\"opened\"}")); require(hubField.get(owner[0]) == replacement[0] && !replacement[0].closing(), "old task success cannot close rebuilt UI");
-                            owner[0].finishHubTask(replacement[0], task, new ShizukuBridge.Result(true, "", "{\"state\":\"opened\"}")); finishSharedExit(owner[0], replacement[0], hubField, "confirmed task recovery");
+                            owner[0].finishHubTask(launched[0], task, task.displayId(), new ShizukuBridge.Result(false, "stale failure", "")); require(hubField.get(owner[0]) == replacement[0], "old task failure cannot alter rebuilt UI");
+                            owner[0].finishHubTask(launched[0], task, task.displayId(), new ShizukuBridge.Result(true, "", "{\"state\":\"opened\"}")); require(hubField.get(owner[0]) == replacement[0] && !replacement[0].closing(), "old task success cannot close rebuilt UI");
+                            owner[0].finishHubTask(replacement[0], task, task.displayId(), new ShizukuBridge.Result(true, "", "{\"state\":\"opened\"}")); finishSharedExit(owner[0], replacement[0], hubField, "confirmed task recovery");
                         } finally { CoverService.instance = previous; }
                     } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
                 });

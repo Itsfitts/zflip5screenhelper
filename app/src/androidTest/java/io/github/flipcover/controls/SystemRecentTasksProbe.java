@@ -68,6 +68,22 @@ public final class SystemRecentTasksProbe {
             org.json.JSONObject explicit = tasks.execute(display, new org.json.JSONArray().put(SystemRecentTasks.json(back)).toString(), true, true);
             require(explicit.getInt("removed") == 1 && explicit.getInt("retained") == 0 && tasks.read(display).isEmpty(), "explicit dismissal removes the foreground task on the selected display");
             require(tasks.read(other).stream().anyMatch(task -> RecentTasks.sameTask(foreign, task)), "explicit foreground dismissal preserves a sibling task on another display");
+            launch(0, fixture);
+            RecentTasks.Task inner = tasks.read(display, true).stream().filter(task -> task.displayId() == 0 && task.component().equals(fixture)).findFirst().orElseThrow();
+            require(tasks.read(display).stream().noneMatch(task -> task.id() == inner.id()), "Dock excludes the inner-screen task");
+            require(tasks.read(display, true).stream().noneMatch(task -> task.id() == foreign.id()), "page excludes unrelated secondary displays");
+            android.os.Bundle innerPreview = tasks.snapshot(display, SystemRecentTasks.json(inner).toString());
+            require(innerPreview.getParcelable("bitmap") == null && !innerPreview.getBoolean("retryable"), "inner task is icon-only at the privileged snapshot boundary");
+            require(tasks.open(display, SystemRecentTasks.json(inner).toString()).getString("state").equals("opened"), "inner task migrates to selected outer display");
+            require(tasks.read(display).stream().anyMatch(task -> RecentTasks.restored(inner, task, display)), "migration retains task ID, user and component with confirmed outer visibility");
+            tasks.execute(display, new org.json.JSONArray().put(SystemRecentTasks.json(tasks.read(display).get(0))).toString(), true, true);
+            launch(0, fixture);
+            RecentTasks.Task innerClosing = tasks.read(display, true).stream().filter(task -> task.displayId() == 0 && task.component().equals(fixture)).findFirst().orElseThrow();
+            rejected = false;
+            try { tasks.execute(display, new org.json.JSONArray().put(SystemRecentTasks.json(innerClosing)).toString(), true); } catch (IllegalArgumentException expected) { rejected = true; }
+            require(rejected, "Dock clear rejects inner task injection");
+            org.json.JSONObject innerClosed = tasks.execute(display, new org.json.JSONArray().put(SystemRecentTasks.json(innerClosing)).toString(), true, true);
+            require(innerClosed.getInt("removed") == 1 && tasks.read(display, true).stream().noneMatch(task -> task.id() == innerClosing.id()), "explicit page dismissal closes only the selected inner task");
             launchSecure(display, fixture);
             RecentTasks.Task secure = tasks.read(display).get(0);
             android.os.Bundle protectedSnapshot = tasks.snapshot(display, SystemRecentTasks.json(secure).toString());

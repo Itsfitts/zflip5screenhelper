@@ -35,6 +35,7 @@ final class SettingsApplications extends LinearLayout implements AppCatalogCache
     private final Adapter adapter = new Adapter();
     private final Bundle saved;
     private boolean restored;
+    private org.json.JSONObject displayRules = new org.json.JSONObject();
     private Predicate<String> pickerSelection;
 
     SettingsApplications(Context context, Prefs prefs, String mode, Bundle state, Consumer<AppCatalogCache.Entry> select) {
@@ -61,6 +62,7 @@ final class SettingsApplications extends LinearLayout implements AppCatalogCache
         for (int i = 0; i < list.getChildCount(); i++) { View row = list.getChildAt(i); if (row.getTag() instanceof String id && ids.contains(id)) { ImageView icon = row.findViewWithTag("app-icon"); if (icon != null) icon.setImageDrawable(catalog.cachedIcon(getContext(), id)); } }
     }
     private void update() {
+        if (mode.equals("display_sizes")) displayRules = prefs.displaySizeRules();
         Map<String, AppCatalogCache.Entry> all = new LinkedHashMap<>();
         for (AppCatalogCache.Entry entry : catalog.snapshot()) all.putIfAbsent(mode.equals("picker") ? entry.id() : entry.packageName(), entry);
         if (!mode.equals("picker")) {
@@ -70,19 +72,28 @@ final class SettingsApplications extends LinearLayout implements AppCatalogCache
             if (mode.equals("visibility") || mode.equals("status")) packages.add("com.sec.android.app.launcher");
             if (mode.equals("visibility")) packages.addAll(prefs.compactApps());
             else if (mode.equals("status")) packages.addAll(prefs.statusHiddenApps());
-            else { java.util.Iterator<String> keys = prefs.rotationRules().keys(); while (keys.hasNext()) packages.add(keys.next()); }
+            else { java.util.Iterator<String> keys = (mode.equals("display_sizes") ? prefs.displaySizeRules() : prefs.rotationRules()).keys(); while (keys.hasNext()) packages.add(keys.next()); }
             for (String name : packages) if (!all.containsKey(name)) {
                 String label = name.equals("com.android.systemui") ? "三星外屏与系统面板" : name.equals("com.sec.android.app.launcher") ? "三星 One UI 桌面" : name;
                 all.put(name, new AppCatalogCache.Entry("", label, name, label.toLowerCase(Locale.ROOT)));
             }
         }
         if (mode.equals("visibility")) all.remove("com.android.systemui");
+        if (mode.equals("display_sizes")) for (String name : new String[]{BuildConfig.APPLICATION_ID, "android", "com.android.systemui", "com.sec.android.app.launcher"}) all.remove(name);
         items.clear(); String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
         for (AppCatalogCache.Entry entry : all.values()) if ((entry.searchKey() + entry.packageName()).contains(query)) items.add(entry);
+        if (mode.equals("display_sizes")) items.sort(java.util.Comparator.comparingInt(entry -> adjusted(entry.packageName()) ? 0 : 1));
         String message = !catalog.ready() ? catalog.failed() ? "读取失败，点此重试" : "正在读取应用…" : items.isEmpty() ? query.isEmpty() ? "当前没有可选应用" : "没有找到应用" : mode.equals("orientations") ? "选择应用设置方向 · " + items.size() + " 个" : mode.equals("visibility") ? "所选应用隐藏快捷栏和箭头；首页按首页规则开关处理，双白条保留" : mode.equals("status") ? "进入选中应用时隐藏外屏常驻状态栏，离开后恢复；控制中心状态行保留" : "选择应用 · " + items.size() + " 个";
+        if (mode.equals("display_sizes") && catalog.ready() && !items.isEmpty()) message = getContext().getString(R.string.display_size_list_hint);
         if (!message.contentEquals(status.getText())) status.setText(message); status.setOnClickListener(catalog.failed() ? v -> catalog.warm() : null);
         adapter.notifyDataSetChanged();
         if (!restored && catalog.ready()) { restored = true; android.os.Parcelable position = saved.getParcelable("list-settings-app-list"); if (position != null) list.onRestoreInstanceState(position); if ("settings-query".equals(saved.getString("focus"))) search.requestFocus(); }
+    }
+    private boolean adjusted(String name) { org.json.JSONObject rule = displayRules.optJSONObject(name); return rule != null && (rule.optBoolean("portrait") || !rule.optString("original").equals(rule.optString("applied"))); }
+    private String displaySizeSummary(String name) {
+        org.json.JSONObject rule = displayRules.optJSONObject(name); int preset = rule == null ? AppDisplayPolicy.DEFAULT : AppDisplayPolicy.selectedPreset(rule.optString("original"), rule.optString("applied"), rule.optInt("preset", AppDisplayPolicy.CUSTOM));
+        String size = rule != null && rule.has("pending") ? getContext().getString(R.string.display_size_failure) : preset < 0 || preset > 4 ? getContext().getString(R.string.display_size_custom) : getResources().getStringArray(R.array.display_size_presets)[preset];
+        return rule != null && rule.optBoolean("portrait") ? getContext().getString(R.string.display_size_portrait_title) + " · " + size : size;
     }
     private final class Adapter extends BaseAdapter {
         @Override public int getCount() { return items.size(); }
@@ -100,6 +111,7 @@ final class SettingsApplications extends LinearLayout implements AppCatalogCache
             LinearLayout.LayoutParams image = new LinearLayout.LayoutParams(Ui.dp(c, 32), Ui.dp(c, 32)); image.setMarginEnd(Ui.dp(c, 12)); row.addView(icon, image);
             LinearLayout words = SettingsUi.column(c); words.addView(SettingsUi.heading(c, entry.label(), 16));
             String summary = mode.equals("orientations") ? Prefs.rotationLabel(prefs.appRotation(entry.packageName())) : "";
+            if (mode.equals("display_sizes")) summary = displaySizeSummary(entry.packageName());
             if (entry.id().isEmpty() && !entry.packageName().startsWith("com.android.systemui") && !entry.packageName().equals("com.sec.android.app.launcher")) summary += "\n应用当前不可用 · 可修改已保存规则";
             long sameNames = items.stream().filter(e -> e.label().equals(entry.label())).count(); if (sameNames > 1) summary += (summary.isEmpty() ? "" : "\n") + entry.packageName();
             if (!summary.isEmpty()) { TextView value = SettingsUi.text(c, summary.trim(), 14, SettingsUi.ACCENT); value.setPadding(0, Ui.dp(c, 4), 0, 0); words.addView(value); } row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));

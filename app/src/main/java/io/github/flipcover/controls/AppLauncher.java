@@ -57,7 +57,7 @@ final class AppLauncher {
         if (!reason.equals("ready")) { if (!reason.equals("owner_inactive")) message.accept(failureMessage(reason)); completed.accept(false); return; }
         if (busy) { diagnostics.event(request, "rejected busy"); message.accept("正在打开应用，请稍候"); completed.accept(false); return; }
         Intent intent = applicationIntent(component);
-        Runnable start = () -> {
+        Runnable ordinary = () -> {
             Check current = check(context, prefs, target); boolean active = ownerReady.getAsBoolean();
             diagnostics.event(request, "start_check " + current.details() + " owner=" + active);
             // Ordinary explicit app starts use Android's lockscreen policy. Keyguard
@@ -68,6 +68,40 @@ final class AppLauncher {
                 diagnostics.event(request, "start_activity exception=" + error.getClass().getSimpleName());
                 message.accept(error instanceof android.content.ActivityNotFoundException ? "应用已卸载或暂不可用" : error instanceof SecurityException ? "系统未允许在外屏打开此应用" : "暂时无法打开此应用"); completed.accept(false);
             }
+        };
+        Runnable start = () -> {
+            String name = component.getPackageName();
+            if (!prefs.hasAppPortraitRule(name)) { ordinary.run(); return; }
+            boolean portrait = prefs.appPortrait(name);
+            String portraitRatio = prefs.appPortraitRatio(name);
+            ShizukuBridge bridge = CoverApp.bridge(context);
+            if (!bridge.connected()) {
+                if (!portrait) ordinary.run();
+                else { message.accept("清晰竖屏需要连接 Shizuku"); completed.accept(false); }
+                return;
+            }
+            Check current = check(context, prefs, target);
+            if (!current.ready() || !ownerReady.getAsBoolean()) { if (ownerReady.getAsBoolean()) message.accept(failureMessage(current.reason())); completed.accept(false); return; }
+            try {
+                Display display = Displays.selected(context, prefs);
+                String session = java.util.UUID.randomUUID().toString();
+                org.json.JSONObject payload = SystemAppDisplay.request(name, display).put("component", component.flattenToString());
+                if (portrait) payload.put("session", session).put("ratio", portraitRatio);
+                String body = payload.toString(); busy = true;
+                bridge.run(portrait ? "app_portrait_open" : "app_portrait_close", target, 0, body, () -> ownerReady.getAsBoolean() && ready(context, prefs, target), result -> {
+                    busy = false;
+                    // A successful remote start can pause the settings Activity before this callback.
+                    // Revalidate the target and saved mode; losing the launching UI is expected then.
+                    boolean active = ready(context, prefs, target) && prefs.appPortrait(name) == portrait && (!portrait || prefs.appPortraitRatio(name).equals(portraitRatio)) && (portrait && result.ok || ownerReady.getAsBoolean());
+                    diagnostics.event(request, "portrait=" + portrait + " accepted=" + result.ok + " active=" + active + " visibility=unconfirmed");
+                    if (!active) {
+                        if (portrait && result.ok) bridge.run("app_portrait_close", target, 0, body, ignored -> { });
+                        completed.accept(false); return;
+                    }
+                    if (!result.ok) { message.accept(result.message); completed.accept(false); return; }
+                    if (portrait) completed.accept(true); else ordinary.run();
+                });
+            } catch (Exception error) { busy = false; message.accept("清晰竖屏启动失败，请重新打开设置检查"); completed.accept(false); }
         };
         int rotation = prefs.appRotation(component.getPackageName());
         if (rotation < 0) { start.run(); return; }

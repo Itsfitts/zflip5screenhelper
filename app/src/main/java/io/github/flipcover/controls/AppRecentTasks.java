@@ -17,30 +17,43 @@ final class AppRecentTasks {
         boolean ok() { return snapshot != null; }
     }
     static RecentTasks.Task task(JSONObject item, int display) throws Exception {
+        return task(item, display, false);
+    }
+    static RecentTasks.Task task(JSONObject item, int display, boolean page) throws Exception {
         ComponentName component = ComponentName.unflattenFromString(item.getString("component"));
-        if (component == null || item.getInt("displayId") != display || display <= 0 || item.getInt("userId") != android.os.Process.myUid() / 100000 || item.getInt("id") < 0) throw new IllegalArgumentException("任务身份不匹配");
-        return new RecentTasks.Task(item.getInt("id"), display, item.getInt("userId"), component.flattenToString(), component.getPackageName(), item.optBoolean("visible"));
+        int sourceDisplay = item.getInt("displayId");
+        if (component == null || !(page ? RecentTasks.inPage(sourceDisplay, display) : sourceDisplay == display) || display <= 0 || item.getInt("userId") != android.os.Process.myUid() / 100000 || item.getInt("id") < 0) throw new IllegalArgumentException("任务身份不匹配");
+        return new RecentTasks.Task(item.getInt("id"), sourceDisplay, item.getInt("userId"), component.flattenToString(), component.getPackageName(), item.optBoolean("visible"));
     }
     static List<RecentTasks.Task> tasks(JSONArray source, int display) throws Exception {
-        if (source.length() > 32) throw new IllegalArgumentException("任务数量过多"); List<RecentTasks.Task> tasks = new ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>(); for (int i = 0; i < source.length(); i++) { RecentTasks.Task task = task(source.getJSONObject(i), display); if (!seen.add(RecentTasks.key(task))) throw new IllegalArgumentException("重复任务"); tasks.add(task); } return List.copyOf(tasks);
+        return tasks(source, display, false);
+    }
+    static List<RecentTasks.Task> tasks(JSONArray source, int display, boolean page) throws Exception {
+        if (source.length() > RecentTasks.TASK_LIMIT) throw new IllegalArgumentException("任务数量过多"); List<RecentTasks.Task> tasks = new ArrayList<>();
+        java.util.Set<Integer> seen = new java.util.HashSet<>(); for (int i = 0; i < source.length(); i++) { RecentTasks.Task task = task(source.getJSONObject(i), display, page); if (!seen.add(task.id())) throw new IllegalArgumentException("重复任务"); tasks.add(task); } return List.copyOf(tasks);
     }
     static String encode(List<RecentTasks.Task> tasks) throws Exception { JSONArray rows = new JSONArray(); for (RecentTasks.Task task : tasks) rows.put(SystemRecentTasks.json(task)); return rows.toString(); }
     static Snapshot decode(Context context, int display, String output) throws Exception {
-        JSONObject payload = new JSONObject(output); List<RecentTasks.Task> tasks = tasks(payload.getJSONArray("tasks"), display);
-        boolean complete = payload.optBoolean("complete"); CoverApp.taskLocks(context).reconcile(display, android.os.Process.myUid() / 100000, tasks, complete);
+        return decode(context, display, output, false);
+    }
+    static Snapshot decode(Context context, int display, String output, boolean page) throws Exception {
+        JSONObject payload = new JSONObject(output); List<RecentTasks.Task> tasks = tasks(payload.getJSONArray("tasks"), display, page);
+        boolean complete = payload.optBoolean("complete"); CoverApp.taskLocks(context).reconcile(display, android.os.Process.myUid() / 100000, tasks, complete, page);
         return new Snapshot(tasks, payload.optBoolean("canOpen"), payload.optBoolean("canClear"), payload.optBoolean("canSnapshot"), complete);
     }
     static void request(Context context, Prefs prefs, int display, List<RecentTasks.Task> clearing, BooleanSupplier active, Consumer<Response> callback) {
-        request(context, prefs, display, clearing, false, active, callback);
+        request(context, prefs, display, clearing, false, false, active, callback);
     }
-    static void dismiss(Context context, Prefs prefs, RecentTasks.Task task, BooleanSupplier active, Consumer<Response> callback) {
-        request(context, prefs, task.displayId(), List.of(task), true, active, callback);
+    static void requestPage(Context context, Prefs prefs, int display, BooleanSupplier active, Consumer<Response> callback) {
+        request(context, prefs, display, null, false, true, active, callback);
+    }
+    static void dismiss(Context context, Prefs prefs, int display, RecentTasks.Task task, BooleanSupplier active, Consumer<Response> callback) {
+        request(context, prefs, display, List.of(task), true, true, active, callback);
     }
     static void clearPage(Context context, Prefs prefs, int display, List<RecentTasks.Task> tasks, BooleanSupplier active, Consumer<Response> callback) {
-        request(context, prefs, display, tasks, true, active, callback);
+        request(context, prefs, display, tasks, true, true, active, callback);
     }
-    private static void request(Context context, Prefs prefs, int display, List<RecentTasks.Task> clearing, boolean explicitTask, BooleanSupplier active, Consumer<Response> callback) {
+    private static void request(Context context, Prefs prefs, int display, List<RecentTasks.Task> clearing, boolean explicitTask, boolean page, BooleanSupplier active, Consumer<Response> callback) {
         if (!active.getAsBoolean() || !AppLauncher.ready(context, prefs, display)) { callback.accept(new Response(null, "所选外屏不可用，请解锁后重试")); return; }
         String request = "";
         if (clearing != null) {
@@ -49,11 +62,11 @@ final class AppRecentTasks {
             try { request = encode(clearing); } catch (Exception error) { callback.accept(new Response(null, "任务数据无效")); return; }
         }
         boolean clean = clearing != null;
-        CoverApp.bridge(context).runTask(clean ? explicitTask ? "recent_dismiss" : "recent_clear" : "recent_tasks", display, request, () -> active.getAsBoolean() && AppLauncher.ready(context, prefs, display), result -> {
+        CoverApp.bridge(context).runTask(clean ? explicitTask ? "recent_dismiss" : "recent_clear" : page ? "recent_page" : "recent_tasks", display, request, () -> active.getAsBoolean() && AppLauncher.ready(context, prefs, display), result -> {
             if (!active.getAsBoolean() || !AppLauncher.ready(context, prefs, display)) { callback.accept(new Response(null, "外屏状态已改变")); return; }
             if (!result.ok) { callback.accept(new Response(null, result.message)); return; }
             Snapshot snapshot;
-            try { snapshot = decode(context, display, result.output); }
+            try { snapshot = decode(context, display, result.output, page); }
             catch (Exception error) { callback.accept(new Response(null, "系统任务返回格式不兼容")); return; }
             callback.accept(new Response(snapshot, clean ? result.message : null));
         });
@@ -62,9 +75,12 @@ final class AppRecentTasks {
         return CoverApp.taskLocks(context).unlocked(explicitTask ? tasks : RecentTasks.backgroundTargets(tasks, AppDockLayout.packages(prefs.hubPins())));
     }
     static void open(Context context, Prefs prefs, RecentTasks.Task task, BooleanSupplier active, ShizukuBridge.Callback callback) {
-        if (!active.getAsBoolean() || !AppLauncher.ready(context, prefs, task.displayId())) { callback.accept(new ShizukuBridge.Result(false, "所选外屏不可用，请解锁后重试", "")); return; }
-        try { CoverApp.bridge(context).runTask("recent_open", task.displayId(), SystemRecentTasks.json(task).toString(), () -> active.getAsBoolean() && AppLauncher.ready(context, prefs, task.displayId()), result -> {
-            if (!active.getAsBoolean() || !AppLauncher.ready(context, prefs, task.displayId())) { callback.accept(new ShizukuBridge.Result(false, "外屏状态已改变", "")); return; }
+        open(context, prefs, task.displayId(), task, active, callback);
+    }
+    static void open(Context context, Prefs prefs, int display, RecentTasks.Task task, BooleanSupplier active, ShizukuBridge.Callback callback) {
+        if (!active.getAsBoolean() || !RecentTasks.inPage(task.displayId(), display) || !AppLauncher.ready(context, prefs, display)) { callback.accept(new ShizukuBridge.Result(false, "所选外屏不可用，请解锁后重试", "")); return; }
+        try { CoverApp.bridge(context).runTask("recent_open", display, SystemRecentTasks.json(task).toString(), () -> active.getAsBoolean() && AppLauncher.ready(context, prefs, display), result -> {
+            if (!active.getAsBoolean() || !AppLauncher.ready(context, prefs, display)) { callback.accept(new ShizukuBridge.Result(false, "外屏状态已改变", "")); return; }
             callback.accept(result);
         }); }
         catch (Exception error) { callback.accept(new ShizukuBridge.Result(false, "任务数据无效", "")); }

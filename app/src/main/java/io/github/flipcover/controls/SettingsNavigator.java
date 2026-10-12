@@ -26,7 +26,7 @@ final class SettingsNavigator {
     }
     Bundle back() { if (history.isEmpty()) return null; current = history.remove(history.size() - 1); replay = true; return current; }
     Bundle save(ScrollView scroll, ViewGroup body) { if (current != null) current.putBundle("ui", capture(scroll, body)); Bundle out = new Bundle(); out.putBundle("current", current); out.putParcelableArrayList("history", history); return out; }
-    private String identity(Bundle value) { String page = value.getString("page", "main"); return page + (page.equals("library") || page.equals("order") ? "|" + value.getString("editing", "") : "") + (page.equals("app_orientation") ? "|" + value.getString("package", "") : ""); }
+    private String identity(Bundle value) { String page = value.getString("page", "main"); return page + (page.equals("library") || page.equals("order") ? "|" + value.getString("editing", "") : "") + (page.equals("app_orientation") || page.equals("app_display_size") ? "|" + value.getString("package", "") : ""); }
     static Bundle capture(ScrollView scroll, ViewGroup body) {
         Bundle state = new Bundle(); if (scroll == null || body == null) return state;
         state.putInt("y", scroll.getScrollY()); captureViews(body, state);
@@ -48,6 +48,7 @@ final class SettingsNavigator {
         return null;
     }
     private static void captureViews(View view, Bundle state) {
+        if (view instanceof AppDisplaySettings display) display.saveUiState(state);
         if (view.getTag() instanceof String tag) { if (view instanceof EditText text) { state.putString(tag, text.getText().toString()); state.putBoolean(tag + "-visible", view.getVisibility() == View.VISIBLE); } if (view instanceof android.widget.ListView list) state.putParcelable("list-" + tag, list.onSaveInstanceState()); if (view.isFocused()) state.putString("focus", tag); }
         if (view instanceof ViewGroup group) for (int i = 0; i < group.getChildCount(); i++) captureViews(group.getChildAt(i), state);
     }
