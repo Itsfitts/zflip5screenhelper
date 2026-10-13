@@ -51,6 +51,7 @@ final class WindowStabilityChecks {
                         var placement = (DockGeometry.Placement) field(owner, "panelEntryPlacement");
                         require(field(entry, "chrome").equals(DockGeometry.panelEntryChrome(placement, owner.screenContext.getResources().getDisplayMetrics().density)), "white-bar drawing follows final safe area after resize");
                         require(entry.getAlpha() == .5f && (long) field(entry, "hideAt") == entryHideAt, "white-bar resize preserves visibility and the original fade deadline");
+                        checkGeometryDiagnostics(entry);
                     });
                 } finally { test.runOnMainSync(this::close); }
             }
@@ -144,6 +145,28 @@ final class WindowStabilityChecks {
     private WindowInsets metrics(int top, int bottom) {
         return new WindowInsets.Builder().setInsets(WindowInsets.Type.statusBars(), Insets.of(0, top, 0, 0)).setVisible(WindowInsets.Type.statusBars(), top > 0)
             .setInsets(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, bottom)).setInsetsIgnoringVisibility(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, bottom)).setVisible(WindowInsets.Type.navigationBars(), bottom > 0).build();
+    }
+    private void checkGeometryDiagnostics(PanelEntryView entry) {
+        String before = owner.entryGeometryDiagnostics();
+        require(before.contains("可见导航边衬=Insets{left=0, top=0, right=0, bottom=66}") && before.contains("白条计算绘制带="), "diagnostics retain the applied navigation input and calculated entry separately");
+        DockGeometry.Box requested = bounds(entry);
+        int[] origin = new int[2]; entry.getLocationOnScreen(origin);
+        require(before.contains("入口实际窗口=" + new DockGeometry.Box(origin[0], origin[1], entry.getWidth(), entry.getHeight())), "diagnostics use the view's screen location instead of the requested coordinates");
+        for (int offset = 1; offset <= 16; offset++) {
+            entry.setTranslationY(offset * 2);
+            invoke(owner, "scheduleEntryGeometryCapture"); entry.getViewTreeObserver().dispatchOnPreDraw();
+        }
+        entry.getLocationOnScreen(origin);
+        String moved = owner.entryGeometryDiagnostics();
+        require(moved.contains("入口请求窗口=" + requested) && moved.contains("入口实际窗口=" + new DockGeometry.Box(origin[0], origin[1], entry.getWidth(), entry.getHeight())), "window movement is visible without rewriting the requested geometry");
+        var history = (java.util.ArrayDeque<?>) field(owner, "entryGeometryHistory");
+        require(history.size() == 12, "diagnostic retention is bounded across repeated layout changes");
+        String last = history.getLast().toString();
+        invoke(owner, "scheduleEntryGeometryCapture"); entry.getViewTreeObserver().dispatchOnPreDraw();
+        require(history.size() == 12 && history.getLast().equals(last), "unchanged layouts do not overwrite useful history");
+        invoke(owner, "removeWindows");
+        require(owner.entryGeometryDiagnostics().contains("入口未挂载") && owner.entryGeometryDiagnostics().contains(last), "unmount is reported honestly while retaining the previous actual coordinates");
+        require(field(owner, "entryGeometryCapture") == null, "unmount releases the pending diagnostic observer");
     }
     private void down(View view) { event(view, android.view.MotionEvent.ACTION_DOWN); }
     private void cancel(View view) { event(view, android.view.MotionEvent.ACTION_CANCEL); }

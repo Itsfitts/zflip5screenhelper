@@ -43,6 +43,18 @@ final class PanelEntryView extends View {
         setContentDescription("双白条入口：左条打开通知，右条打开控制中心；" + (edge == DockGeometry.TOP ? "向下滑入" : "向上滑入") + "；白条可见时长按切换常驻／收起展开模式"); modeChanged();
     }
     void modeChanged() { setStateDescription(prefs.dockExpandable() ? "收起展开模式" : "常驻模式"); }
+    String geometryDiagnostics() {
+        if (!isLaidOut() || getWidth() == 0 || getHeight() == 0) return "入口实际位置：尚未完成布局";
+        int[] origin = new int[2]; getLocationOnScreen(origin);
+        DockGeometry.Box first = chrome.firstHandle(), second = chrome.secondHandle();
+        android.view.WindowInsets insets = getRootWindowInsets();
+        String system = insets == null ? "尚未收到窗口边衬" : "窗口强制手势=" + insets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures())
+            + ", 可见导航=" + insets.getInsets(android.view.WindowInsets.Type.navigationBars()) + ", 导航可见=" + insets.isVisible(android.view.WindowInsets.Type.navigationBars()) + ", 窗口缺口=" + insets.getDisplayCutout();
+        return "入口实际窗口=" + new DockGeometry.Box(origin[0], origin[1], getWidth(), getHeight()) + ", viewDisplay=" + (getDisplay() == null ? -1 : getDisplay().getDisplayId())
+            + "\n左条实际绘制=" + new DockGeometry.Box(origin[0] + first.x(), origin[1] + first.y(), first.width(), first.height())
+            + "\n右条实际绘制=" + new DockGeometry.Box(origin[0] + second.x(), origin[1] + second.y(), second.width(), second.height())
+            + "\n入口手势启用=" + gesturesEnabled + ", slopPx=" + slop + "\n" + system;
+    }
     void placement(DockGeometry.Placement value) {
         int top = value.visual().y() - value.touch().y();
         DockGeometry.Chrome next = DockGeometry.panelEntryChrome(value, getResources().getDisplayMetrics().density);

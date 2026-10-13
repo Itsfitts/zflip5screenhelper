@@ -74,6 +74,9 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private CharSequence systemUiTitle;
     private PanelEntryView panelEntry;
     private DockGeometry.Placement panelEntryPlacement;
+    private String entryGeometryInputs = "尚未计算", computedEntryGeometryInputs = "尚未计算", lastEntryGeometry = "", entryWindowMetrics = "未读取";
+    private final java.util.ArrayDeque<String> entryGeometryHistory = new java.util.ArrayDeque<>();
+    private android.view.ViewTreeObserver.OnPreDrawListener entryGeometryCapture;
     private DockGeometry.Placement dockPlacement;
     private final DockVisibility dockVisibility = new DockVisibility();
     private final StatusAppVisibility statusVisibility = new StatusAppVisibility();
@@ -564,7 +567,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
             Context context = createDisplayContext(selected);
             float density = context.getResources().getDisplayMetrics().density;
             android.view.WindowInsets displayInsets = null;
-            try { WindowManager metrics = windows != null && display != null && display.getDisplayId() == selected.getDisplayId() ? windows : context.getSystemService(WindowManager.class); displayInsets = metrics.getMaximumWindowMetrics().getWindowInsets(); } catch (RuntimeException ignored) { }
+            try {
+                WindowManager metrics = windows != null && display != null && display.getDisplayId() == selected.getDisplayId() ? windows : context.getSystemService(WindowManager.class);
+                android.view.WindowMetrics maximum = metrics.getMaximumWindowMetrics(); displayInsets = maximum.getWindowInsets();
+                entryWindowMetrics = "bounds=" + maximum.getBounds() + ", navigationVisible=" + displayInsets.isVisible(android.view.WindowInsets.Type.navigationBars()) + ", cutout=" + displayInsets.getDisplayCutout();
+            } catch (RuntimeException error) { entryWindowMetrics = "读取失败：" + error.getClass().getSimpleName(); }
             android.graphics.Insets mandatory = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures());
             android.graphics.Insets navigation = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets navigationBounds = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars());
@@ -594,6 +601,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             if (prefs.statusEnabled()) { statusBar = new StatusBarView(screenContext, prefs); syncCardStatus(); windows.addView(statusBar, statusParameters()); }
             panelEntry = new PanelEntryView(screenContext, prefs, panelEntryPlacement, chromeListener());
             windows.addView(panelEntry, panelEntryParameters());
+            entryGeometryInputs = computedEntryGeometryInputs;
+            scheduleEntryGeometryCapture();
             CoverApp.widgets(this).safeArea(selected, size.x, size.y, widgetArea);
             signature = nextSignature; displaySignature = nextDisplaySignature;
             observeForeground(null);
@@ -617,6 +626,15 @@ public final class CoverService extends AccessibilityService implements DisplayM
         }
         if (!prefs.avoidNavigation()) placement = DockGeometry.edgeTouch(placement, size.x, size.y);
         DockGeometry.Box widgetArea = resolveContentGeometry(size, rotation, cutouts, entryAnchor, systemInsets, panelHomeInset);
+        computedEntryGeometryInputs = "显示器=" + selected.getDisplayId() + ", rotation=" + rotation + ", size=" + size.x + "×" + size.y + ", density=" + density
+            + "\n计算所用最大窗口度量=" + entryWindowMetrics
+            + "\nDisplay 缺口=" + selected.getCutout() + "\n缺口矩形=" + cutouts
+            + "\n强制手势边衬=" + mandatory + "\n可见导航边衬=" + navigation + "\n忽略可见性的导航边衬=" + navigationBounds
+            + "\n正文综合边衬=" + systemInsets + ", 白条 Home 避让=" + panelHomeInset
+            + "\n入口设置=" + prefs.entryPosition(rotation) + ", 自动定位=" + prefs.data.getBoolean("auto_placement", true) + ", 导航避让=" + prefs.avoidNavigation() + ", 额外内移dp=" + prefs.navigationGap()
+            + "\n快捷栏计算绘制=" + placement.visual() + ", 触摸=" + placement.touch()
+            + "\n白条计算绘制带=" + panelEntryPlacement.visual() + ", 触摸=" + panelEntryPlacement.touch()
+            + "\n正文边界=" + placement.panel() + ", 背板安全边界=" + cardSafeFrame;
         android.graphics.Insets handleInsets = android.graphics.Insets.max(systemInsets, mandatory);
         int handleTop = Math.max(handleInsets.top, statusBox == null ? 0 : statusBox.bottom());
         DockGeometry.Box handleBox = DockGeometry.clockHandle(placement, size.x, size.y, cutouts, density, new DockGeometry.Box(handleInsets.left, handleTop, Math.max(0, size.x - handleInsets.left - handleInsets.right), Math.max(0, size.y - handleTop - handleInsets.bottom)), panelEntryPlacement.touch());
@@ -645,6 +663,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             }
         }
         panelEntry.placement(panelEntryPlacement); updateWindowBounds(panelEntry, panelEntryPlacement.touch());
+        entryGeometryInputs = computedEntryGeometryInputs;
+        scheduleEntryGeometryCapture();
         if (statusBar != null) updateWindowBounds(statusBar, statusBox);
         CoverApp.widgets(this).safeArea(selected, size.x, size.y, widgetArea);
         syncCardStatus(); syncDockVisibility(); return true;
@@ -1802,6 +1822,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         removeWindows(false);
     }
     private void removeWindows(boolean keepNativeGeometry) {
+        if (panelEntry != null) rememberEntryGeometry("卸载前");
+        cancelEntryGeometryCapture();
         locationGeneration++;
         if (!keepNativeGeometry) invalidateForegroundQuery();
         removeDockHandle(false); dockHandleBox = null; dockHandlePositions = null;
@@ -1828,6 +1850,41 @@ public final class CoverService extends AccessibilityService implements DisplayM
         String entry = panelEntry != null && panelEntry.isAttachedToWindow() && panelEntryPlacement != null
             ? (panelEntryPlacement.vertical() ? "上条通知／下条控制中心" : "左条通知／右条控制中心") + " · " + (panelEntryPlacement.measured() ? "系统缺口" : "校准估计，需本机确认") + " · " + panelEntryPlacement.touch() : "未挂载";
         return "系统导航边缘：" + navigationInsetPixels + "px\n导航避让：" + prefs.avoidNavigation() + "，额外内移 " + prefs.navigationGap() + "dp\n" + "快捷栏窗口：" + (dock == null ? "未创建" : dock.isAttachedToWindow() ? "已挂载" : "已脱离，等待恢复") + "\n双白条入口：" + entry + "\n显示模式：" + (dock != null && dock.compact() ? "快捷按钮已隐藏" : "快捷按钮") + "\n外屏键盘：" + (keyboardVisible == null ? "未知" : keyboardVisible ? "已检测到" : "未检测到") + "\n最近亮屏／解锁事件：" + lastScreenEvent + "\n最近应用中心恢复检查：" + lastLauncherRecovery + "\n";
+    }
+    /** One sample after the requested window layout, never a frame loop or background poll. */
+    private void scheduleEntryGeometryCapture() {
+        if (panelEntry == null || entryGeometryCapture != null) return;
+        PanelEntryView owner = panelEntry;
+        entryGeometryCapture = () -> {
+            cancelEntryGeometryCapture();
+            if (panelEntry == owner && owner.isAttachedToWindow()) rememberEntryGeometry("布局完成");
+            return true;
+        };
+        owner.getViewTreeObserver().addOnPreDrawListener(entryGeometryCapture);
+        owner.invalidate();
+    }
+    private void cancelEntryGeometryCapture() {
+        if (entryGeometryCapture == null) return;
+        if (panelEntry != null && panelEntry.getViewTreeObserver().isAlive()) panelEntry.getViewTreeObserver().removeOnPreDrawListener(entryGeometryCapture);
+        entryGeometryCapture = null;
+    }
+    private String entryGeometrySnapshot() {
+        if (panelEntry == null || !panelEntry.isAttachedToWindow()) return "入口未挂载（以下历史可能属于之前的外屏会话）";
+        String requested = panelEntry.getLayoutParams() instanceof WindowManager.LayoutParams layout
+            ? new DockGeometry.Box(layout.x, layout.y, layout.width, layout.height) + ", flags=0x" + Integer.toHexString(layout.flags) : "非独立窗口";
+        return entryGeometryInputs + "\n入口请求窗口=" + requested + "\n" + panelEntry.geometryDiagnostics();
+    }
+    private void rememberEntryGeometry(String reason) {
+        if (panelEntry == null || !panelEntry.isAttachedToWindow()) return;
+        String snapshot = entryGeometrySnapshot();
+        if (snapshot.equals(lastEntryGeometry)) return;
+        lastEntryGeometry = snapshot;
+        if (entryGeometryHistory.size() == 12) entryGeometryHistory.removeFirst();
+        entryGeometryHistory.addLast(android.text.format.DateFormat.format("MM-dd HH:mm:ss", new java.util.Date()) + " · " + android.os.SystemClock.elapsedRealtime() + "ms · " + reason + "\n" + snapshot);
+    }
+    String entryGeometryDiagnostics() {
+        return "\n白条几何诊断（显示器像素；rotation 0/1/2/3=0°/90°/180°/270°；边衬按左上右下）\n启动器会话延后边衬更新=" + hubInsetsDeferred + "\n当前：\n" + entryGeometrySnapshot()
+            + "\n最近位置变化（布局完成／卸载前采样，最多12条，仅本次服务内存，旧到新）：\n" + (entryGeometryHistory.isEmpty() ? "暂无布局记录" : String.join("\n---\n", entryGeometryHistory)) + "\n";
     }
     private static void setStatus(String value) {
         if (value.equals(status)) return;
@@ -2263,7 +2320,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     @Override protected void dump(java.io.FileDescriptor descriptor, java.io.PrintWriter writer, String[] arguments) {
         super.dump(descriptor, writer, arguments); writer.println(blurDiagnostics());
-        if (prefs != null) { writer.println(windowDiagnostics()); writer.println(lifecycleDiagnostics()); }
+        if (prefs != null) { writer.println(windowDiagnostics()); writer.println(entryGeometryDiagnostics()); writer.println(lifecycleDiagnostics()); }
         writer.println("Status overlay: mounted=" + (statusBar != null) + ", visible=" + (statusBar != null && statusBar.getVisibility() == View.VISIBLE) + ", appRule=" + statusVisibility.hidden() + ", enabled=" + statusVisibility.enabled() + ", settling=" + main.hasCallbacks(settleStatusApplication));
         writer.println("Dock arrow geometry: expandableMode=" + dockVisibility.expandable() + ", positions=" + dockHandlePositions);
         writer.println("Clock dock: scene=" + coverClockVisible + ", automaticHidden=" + dockVisibility.automaticallyCompact(dockAppRulesEnabled, compactApplications) + ", mounted=" + (dockHandle != null && dockHandle.isAttachedToWindow()) + ", expanded=" + (dockHandle != null && dockHandle.expanded()) + ", alpha=" + (dockHandle == null ? 0 : dockHandle.getAlpha()) + ", touch=" + dockHandleBox + ", motion=" + (dockHandleMotion != null) + ", dockProgress=" + dockProgress + ", paging=" + returningToClock + ", pagingEvents=" + coverPagingEvents);

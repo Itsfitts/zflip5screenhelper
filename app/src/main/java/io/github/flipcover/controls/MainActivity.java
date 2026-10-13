@@ -620,7 +620,7 @@ public final class MainActivity extends Activity {
         summary.addView(status); summary.addView(target);
         TextView details = SettingsUi.text(this, "", 14, SettingsUi.MUTED); details.setTag("diagnostic-details"); details.setTextIsSelectable(true); details.setVisibility(View.GONE);
         int[] generation = {0};
-        Runnable refresh = () -> { generation[0]++; diagnosticText = diagnosticReport(); status.value(CoverService.status); target.value(displaySummary()); details.setText(diagnosticText + CoverApp.launcher(this).diagnostics.report()); };
+        Runnable refresh = () -> { generation[0]++; diagnosticText = diagnosticReport(); status.value(CoverService.status); target.value(displaySummary()); details.setText(diagnosticText + runtimeDiagnosticReport()); };
         refresh.run();
         LinearLayout actions = group("diagnostic-actions");
         View reload = SettingsUi.settingRow(this, 0, "刷新日志", "重新采集当前状态与启动记录", () -> { refresh.run(); toast("日志已刷新"); }); reload.setTag("diagnostic-refresh"); actions.addView(reload);
@@ -630,11 +630,15 @@ public final class MainActivity extends Activity {
             CoverApp.bridge(this).run("diagnostics", selected == null ? -1 : selected.getDisplayId(), 0, "", result -> {
                 if (isDestroyed() || !v.isAttachedToWindow()) return;
                 v.setEnabled(true); if (request != generation[0]) return;
-                diagnosticText += "\n" + result.message + "\n" + result.output; details.setText(diagnosticText + CoverApp.launcher(this).diagnostics.report()); details.setVisibility(View.VISIBLE);
+                diagnosticText += "\n" + result.message + "\n" + result.output; details.setText(diagnosticText + runtimeDiagnosticReport()); details.setVisibility(View.VISIBLE);
             });
         }); actions.addView(probe);
-        View copy = SettingsUi.settingRow(this, 0, "复制检测结果", "含本次运行的启动诊断，不含通知正文", () -> { String report = diagnosticText + CoverApp.launcher(this).diagnostics.report(); details.setText(report); getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("外屏检测", report)); toast("已复制"); }); copy.setTag("diagnostic-copy"); actions.addView(copy);
+        View copy = SettingsUi.settingRow(this, 0, "复制检测结果", "含白条位置、边衬与启动诊断，不含通知正文", () -> { String report = diagnosticText + runtimeDiagnosticReport(); details.setText(report); getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("外屏检测", report)); toast("已复制"); }); copy.setTag("diagnostic-copy"); actions.addView(copy);
         SettingsUi.add(body, details); related("兼容性说明", "launch_compatibility");
+    }
+    private String runtimeDiagnosticReport() {
+        CoverService service = CoverService.instance;
+        return (service == null ? "\n白条几何诊断：服务未连接，内存记录不可用\n" : service.entryGeometryDiagnostics()) + CoverApp.launcher(this).diagnostics.report();
     }
     private String diagnosticReport() {
         StringBuilder report = new StringBuilder(getString(R.string.app_name)).append(' ').append(BuildConfig.VERSION_NAME).append(" / ").append(BuildConfig.VERSION_CODE).append("\nAndroid ").append(android.os.Build.VERSION.RELEASE).append(" / API ").append(android.os.Build.VERSION.SDK_INT).append("\n设备：").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append("\n系统版本：").append(android.os.Build.DISPLAY).append('\n');

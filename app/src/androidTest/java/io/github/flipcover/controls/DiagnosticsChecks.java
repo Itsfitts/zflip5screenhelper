@@ -67,6 +67,16 @@ final class DiagnosticsChecks {
                 CoverApp.launcher(activity).diagnostics.begin("diagnostic-copy-fixture"); tag("diagnostic-copy").performClick();
                 String copied = activity.getSystemService(ClipboardManager.class).getPrimaryClip().getItemAt(0).getText().toString();
                 require(copied.equals(report()) && copied.contains("diagnostic-copy-fixture"), "clipboard and displayed report match, including latest launch events");
+                CoverService previous = CoverService.instance;
+                CoverService sample = new CoverService();
+                try {
+                    @SuppressWarnings("unchecked") var history = (java.util.ArrayDeque<String>) field(CoverService.class, "entryGeometryHistory").get(sample);
+                    history.add("geometry-copy-fresh-fixture");
+                    CoverService.instance = sample; tag("diagnostic-copy").performClick();
+                    String latest = activity.getSystemService(ClipboardManager.class).getPrimaryClip().getItemAt(0).getText().toString();
+                    require(latest.equals(report()) && latest.contains("geometry-copy-fresh-fixture"), "copy reads the current geometry even when the settings page was opened earlier");
+                } catch (Exception error) { throw new AssertionError(error); }
+                finally { CoverService.instance = previous; }
                 textFits(tag("diagnostic-actions"));
             });
             SystemClock.sleep(180); test.waitForIdleSync(); require(((ScrollView) scroll).getScrollY() == position, "refresh retains scroll position");
