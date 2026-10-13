@@ -17,6 +17,7 @@ import android.graphics.drawable.Drawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.TrafficStats;
 import android.os.BatteryManager;
 import android.os.Build;
@@ -54,7 +55,9 @@ final class StatusBarView extends View {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Drawable> notificationIcons = new ArrayList<>();
     private final List<Cell> cells = new ArrayList<>();
-    private Drawable wifiIcon, alarmIcon, boltIcon;
+    private Drawable wifiIcon, alarmIcon, boltIcon, vpnIcon;
+    private VpnCallback vpnNetworks;
+    private boolean vpn;
     private ConnectivityManager connectivity;
     private SubscriptionManager subscriptions;
     private boolean running, networkRegistered, receiverRegistered, subscriptionsRegistered, wifi, alarm, charging;
@@ -76,6 +79,22 @@ final class StatusBarView extends View {
         @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) { refreshNetwork(); }
         @Override public void onLost(Network network) { refreshNetwork(); }
     };
+    /** Each attachment owns its callback, so late events cannot revive an old VPN indicator. */
+    private final class VpnCallback extends ConnectivityManager.NetworkCallback {
+        private final HashSet<Network> connected = new HashSet<>();
+        @Override public void onAvailable(Network network) {
+            if (!running || vpnNetworks != this) return;
+            connected.add(network); update();
+        }
+        @Override public void onLost(Network network) {
+            if (!running || vpnNetworks != this) return;
+            connected.remove(network); update();
+        }
+        private void update() {
+            boolean active = !connected.isEmpty();
+            if (vpn != active) { vpn = active; invalidate(); }
+        }
+    }
     private final SubscriptionManager.OnSubscriptionsChangedListener subscriptionListener = new SubscriptionManager.OnSubscriptionsChangedListener() {
         @Override public void onSubscriptionsChanged() { refreshCells(); }
     };
@@ -118,6 +137,7 @@ final class StatusBarView extends View {
     private void applyAppearance() {
         setBackgroundColor(!panelMode && prefs.chromeStyle().equals("black") ? Ui.BACKGROUND : android.graphics.Color.TRANSPARENT); setLayerType(LAYER_TYPE_SOFTWARE, null);
         wifiIcon = statusIcon(R.drawable.ic_ms_wifi); alarmIcon = statusIcon(R.drawable.ic_ms_alarm); boltIcon = statusIcon(R.drawable.ic_ms_bolt);
+        vpnIcon = statusIcon(R.drawable.ic_status_vpn);
         clockDrawable = withIconShadow(clockForeground); batteryDrawable = withIconShadow(batteryForeground);
     }
     static String formatRate(float bytes) { return bytes < 1024 * 1024 ? String.format(Locale.ROOT, "%.0fK/s", bytes / 1024) : String.format(Locale.ROOT, "%.1fM/s", bytes / (1024 * 1024)); }
@@ -128,6 +148,12 @@ final class StatusBarView extends View {
         if (Build.VERSION.SDK_INT >= 33) getContext().registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED); else getContext().registerReceiver(receiver, filter);
         receiverRegistered = true; connectivity = getContext().getSystemService(ConnectivityManager.class);
         try { connectivity.registerDefaultNetworkCallback(networks, main); networkRegistered = true; } catch (RuntimeException ignored) { }
+        vpn = false; vpnNetworks = new VpnCallback();
+        try {
+            // Clear NOT_VPN and other default requirements; local-only VPNs also show the key.
+            NetworkRequest request = new NetworkRequest.Builder().clearCapabilities().addTransportType(NetworkCapabilities.TRANSPORT_VPN).build();
+            connectivity.registerNetworkCallback(request, vpnNetworks, main);
+        } catch (RuntimeException ignored) { vpnNetworks = null; }
         refreshNetwork(); refreshNotifications(); refreshCells();
         if (Build.VERSION.SDK_INT >= 31 && prefs.statusItem("cellular") && getContext().checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
             subscriptions = getContext().getSystemService(SubscriptionManager.class);
@@ -207,6 +233,8 @@ final class StatusBarView extends View {
             paint.setColor(foreground()); paint.setTextSize(Ui.dp(getContext(), 6)); text(canvas, cell.type, right, middle - Ui.dp(getContext(), 6)); paint.setTextSize(Ui.dp(getContext(), 10)); right -= gap;
         }
         if (alarm && prefs.statusItem("alarm") && right - icon > x) { right -= icon; drawIcon(canvas, alarmIcon, right, middle, icon); right -= gap; }
+        int vpnSize = Ui.dp(getContext(), 16);
+        if (vpn && right - vpnSize >= x) { right -= vpnSize; drawIcon(canvas, vpnIcon, right, middle, vpnSize); right -= gap; }
         if (prefs.statusItem("speed") && !speed.isEmpty()) { paint.setTextSize(Ui.dp(getContext(), 8)); float length = paint.measureText(speed); if (right - length > x) { right -= length; text(canvas, speed, right, baseline); right -= gap; } paint.setTextSize(Ui.dp(getContext(), 10)); }
         paint.setTypeface(CLOCK_TYPEFACE); paint.setTextSize(getResources().getDisplayMetrics().density * CLOCK_SIZE_DP);
         float clockAdvance = paint.measureText(clock), clockBaseline = height / 2f - (paint.ascent() + paint.descent()) / 2;
@@ -272,6 +300,8 @@ final class StatusBarView extends View {
     }
     @Override protected void onDetachedFromWindow() {
         running = false; main.removeCallbacksAndMessages(null);
+        VpnCallback previousVpn = vpnNetworks; vpnNetworks = null; vpn = false;
+        if (previousVpn != null) connectivity.unregisterNetworkCallback(previousVpn);
         if (receiverRegistered) { getContext().unregisterReceiver(receiver); receiverRegistered = false; }
         if (networkRegistered) { connectivity.unregisterNetworkCallback(networks); networkRegistered = false; }
         if (Build.VERSION.SDK_INT >= 31) { for (Cell cell : cells) cell.stop(); cells.clear(); }

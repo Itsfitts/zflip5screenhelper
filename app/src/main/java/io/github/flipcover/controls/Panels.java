@@ -112,7 +112,7 @@ final class Panels {
         ControlDashboard dashboard = new ControlDashboard(); dashboard.setTag("control-dashboard");
         for (String id : actions) {
             Tile tile = new Tile(id, () -> { if (id.equals("rotation")) owner.toggleRotation(); else owner.act(id); }, true);
-            tile.label.setTextSize(PanelUi.labelSize(owner.prefs.panelLabelSize())); tile.label.setMaxLines(roomyLabels() ? 2 : 1); tile.label.setVisibility(owner.prefs.panelLabels() ? View.VISIBLE : View.GONE);
+            Ui.textSize(tile.label, PanelUi.labelSize(owner.prefs.panelLabelSize())); tile.label.setMaxLines(roomyLabels() ? 2 : 1); tile.label.setVisibility(owner.prefs.panelLabels() ? View.VISIBLE : View.GONE);
             tile.controlFeedback = new ControlFeedback(tile.face, true); tile.setTag("control-" + id); tile.setOnLongClickListener(v -> { if (!preview) owner.showDetails(id, tile); return true; }); buttons.put(id, tile); dashboard.addTile(tile);
             if (!preview) InputNavigation.bind(tile, "control:" + id, InputNavigation.Region.CONTROL, tile::performClick, () -> owner.showDetails(id, tile));
         }
@@ -169,7 +169,8 @@ final class Panels {
             int sidePadding = tools ? Ui.dp(context, 8) : 0;
             toolWidth = tools ? Math.max(sliderWidth, media == null ? 0 : Ui.dp(context, 93)) + sidePadding : 0;
             int sideWidth = width - toolWidth;
-            int minimumCell = Ui.dp(context, roomyLabels() ? 48 : 28);
+            int minimumFace = Ui.dp(context, 23) + Ui.dp(context, 12) + Ui.dp(context, 4);
+            int minimumCell = Math.max(Ui.dp(context, roomyLabels() ? 48 : 28), minimumFace + Ui.dp(context, 4));
             String position = owner.prefs.panelToolsPosition();
             stacked = tools && (tiles.isEmpty() || position.equals("bottom") || sideWidth / requested < minimumCell); gridWidth = stacked ? width : sideWidth;
             boolean fallback = tools && !tiles.isEmpty() && stacked && position.equals("side"); positionHint.setVisibility(fallback ? VISIBLE : GONE); hintHeight = 0;
@@ -179,16 +180,16 @@ final class Panels {
                 // Reserve the configured line count, independent of the current action list.
                 labelSizer.measure(MeasureSpec.makeMeasureSpec(cellWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)); labelHeight = labelSizer.getMeasuredHeight();
             }
-            int minimumRow = Math.max(Ui.dp(context, 48), labelHeight + Ui.dp(context, switch (density) { case 0 -> 39; case 2 -> 51; default -> 43; }));
+            int compactRow = Math.max(Ui.dp(context, 48), labelHeight + (labelHeight == 0 ? 0 : Ui.dp(context, 3)) + minimumFace);
+            int minimumRow = Math.max(compactRow, labelHeight + Ui.dp(context, switch (density) { case 0 -> 39; case 2 -> 51; default -> 43; }));
             int mediaWidth = media == null ? 0 : stacked ? width - sliderWidth - (sliders == null ? 0 : gap) : toolWidth - sidePadding;
             int mediaMinimum = media == null ? 0 : media.minimumCardHeight(mediaWidth), sliderMinimum = sliders == null ? 0 : Ui.dp(context, stacked ? 92 : 68);
             int betweenTools = sliders != null && media != null ? gap : 0, rowCount = tiles.isEmpty() ? 0 : VISIBLE_ROWS;
             toolHeight = stacked ? Math.max(sliderMinimum, mediaMinimum) : sliderMinimum + betweenTools + mediaMinimum;
             int gridGap = tools && rowCount > 0 && stacked ? gap : 0;
             int natural = (stacked ? rowCount * minimumRow + gridGap + toolHeight : Math.max(toolHeight, rowCount * minimumRow)) + hintHeight;
-            // Narrow rotation can wrap one label and enlarge every row. Fit the actual
-            // viewport before overflowing, while retaining readable labels and touch rows.
-            int compactRow = Math.max(Ui.dp(context, 48), labelHeight + Ui.dp(context, 27));
+            // Reserve the full glyph and its state badge before trying to fit the viewport.
+            // The outer ScrollView handles short screens instead of crushing the icon.
             int minimum = (stacked ? rowCount * compactRow + gridGap + toolHeight : Math.max(toolHeight, rowCount * compactRow)) + hintHeight;
             if (controlViewportHeight > 0) natural = Math.max(minimum, Math.min(natural, controlViewportHeight));
             int height = resolveSize(natural, heightSpec); columns = requested;
@@ -198,6 +199,7 @@ final class Panels {
                 int cellHeight = gridHeight / VISIBLE_ROWS; tile.label.getLayoutParams().height = labelHeight;
                 int textHeight = labelHeight == 0 ? 0 : labelHeight + Ui.dp(context, 3);
                 int inset = cellWidth >= Ui.dp(context, 44) ? Ui.dp(context, switch (density) { case 0 -> 4; case 2 -> 12; default -> 8; }) : Ui.dp(context, 4);
+                inset = Math.min(inset, Math.max(0, cellWidth - minimumFace));
                 int face = Math.max(1, Math.min(Ui.dp(context, switch (density) { case 0 -> 48; case 2 -> 64; default -> 56; }), Math.min(cellWidth - inset, cellHeight - textHeight)));
                 FrameLayout.LayoutParams marker = (FrameLayout.LayoutParams) tile.unknown.getLayoutParams();
                 marker.width = marker.height = Ui.dp(context, 12); marker.topMargin = marker.rightMargin = Ui.dp(context, 2);
@@ -300,7 +302,7 @@ final class Panels {
         String[] labels = {"上一首", "播放 / 暂停", "下一首"};
         for (int i = 0; i < keys.length; i++) {
             int key = keys[i]; Tile tile = new Tile("media", () -> owner.media(key)); tile.icon.setImageDrawable(Ui.icon(context, icons[i], Ui.TEXT));
-            tile.label.setText(labels[i]); tile.label.setTextSize(11); tile.setContentDescription(labels[i]); Ui.weighted(row, tile);
+            tile.label.setText(labels[i]); Ui.textSize(tile.label, 11); tile.setContentDescription(labels[i]); Ui.weighted(row, tile);
         }
         Ui.add(body, row); Ui.add(body, Ui.text(context, "播放状态由播放器显示", 11, Ui.MUTED));
     }

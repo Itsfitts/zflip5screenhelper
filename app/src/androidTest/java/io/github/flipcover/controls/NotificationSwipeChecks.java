@@ -26,7 +26,7 @@ final class NotificationSwipeChecks {
     private FrameLayout root;
     private NotificationSwipeRow row;
     private LinearLayout rail;
-    private int assertions, opens, clears;
+    private int assertions, opens, clears, clearRequests;
     private NotificationCenterView center;
     private List<StatusBarNotification> requested = List.of();
     private StatusBarNotification openedNotice;
@@ -40,6 +40,7 @@ final class NotificationSwipeChecks {
             else checkDisabled();
             checkDetach();
             checkRemoval();
+            checkRightClear();
             return "PASS: " + assertions + " notification swipe assertions; emulator motion, no live notifications or Samsung routing";
         } finally { main(() -> activity.finish()); }
     }
@@ -223,11 +224,11 @@ final class NotificationSwipeChecks {
     private NotificationSwipeRow header(int index) { return (NotificationSwipeRow) ((ViewGroup) list().getChildAt(index)).getChildAt(0); }
     private void mountCenter(List<StatusBarNotification> items) {
         main(() -> {
-            requested = List.of(); openedNotice = null; center = new NotificationCenterView(activity, new NotificationCenterView.Actions() {
+            requested = List.of(); clearRequests = 0; openedNotice = null; center = new NotificationCenterView(activity, new NotificationCenterView.Actions() {
                 public void open(StatusBarNotification item) { opens++; openedNotice = item; }
                 public void settings(StatusBarNotification item) { opens++; }
                 public void permission() { }
-                public void clear(List<StatusBarNotification> selected) { requested = List.copyOf(selected); }
+                public void clear(List<StatusBarNotification> selected) { requested = List.copyOf(selected); clearRequests++; }
             });
             ScrollView scroll = new ScrollView(activity); scroll.addView(center); activity.setContentView(scroll); center.update(true, items);
         }); test.waitForIdleSync(); SystemClock.sleep(70); test.waitForIdleSync();
@@ -305,5 +306,104 @@ final class NotificationSwipeChecks {
         mountCenter(List.of(one, two));
         main(() -> { retiring[0] = header(0); retiring[0].findViewWithTag("notification-clear").performClick(); center.update(true, List.of(two)); center.update(false, List.of()); }); SystemClock.sleep(650);
         main(() -> require(list().getChildCount() == 0 && !retiring[0].isAttachedToWindow() && !retiring[0].dismissing(), "disconnect releases in-flight exits and rejects late completion"));
+    }
+    private void checkRightClear() {
+        StatusBarNotification one = notice(81, "right-one", 800, false), two = notice(82, "right-two", 700, false), ongoing = notice(83, "right-keep", 600, true);
+        mountCenter(List.of(one, two, ongoing));
+        main(() -> {
+            row = header(0); long at = SystemClock.uptimeMillis(); float width = row.getWidth();
+            send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, width * .29f);
+            require(clearRequests == 0 && row.surface.getTranslationX() > 0, "right pull follows the finger without clearing below thirty percent");
+            send(at, 110, MotionEvent.ACTION_MOVE, width * .3f);
+            require(clearRequests == 0, "exact threshold remains reversible");
+            send(at, 120, MotionEvent.ACTION_MOVE, width * .31f);
+            require(clearRequests == 1 && requested.size() == 1 && requested.get(0).getKey().equals(one.getKey()), "crossing threshold clears only the dragged notification before UP");
+            float pose = row.surface.getTranslationX();
+            require(row.getAlpha() == 1 && !row.dismissing() && pose > 0, "request waits visibly for system confirmation");
+            send(at, 130, MotionEvent.ACTION_MOVE, -width * .4f); send(at, 140, MotionEvent.ACTION_UP, 0);
+            require(clearRequests == 1 && row.surface.getTranslationX() == pose && openedNotice == null, "reverse and UP cannot resubmit or click after threshold");
+            center.update(true, List.of(two, ongoing));
+            if (ValueAnimator.areAnimatorsEnabled()) require(row.dismissing(), "system confirmation starts the right exit");
+        });
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            float[] previous = {0}; main(() -> previous[0] = row.surface.getTranslationX());
+            for (int i = 0; i < 6; i++) { SystemClock.sleep(16); main(() -> { float next = row.surface.getTranslationX(); require(next >= previous[0], "confirmed right clear never exits to the left"); previous[0] = next; }); }
+        }
+        SystemClock.sleep(450);
+        main(() -> require(list().getChildCount() == 2 && !row.isAttachedToWindow(), "confirmed right clear removes only its row"));
+
+        mountCenter(List.of(one, two, ongoing));
+        main(() -> {
+            row = header(0); long at = SystemClock.uptimeMillis(); float width = row.getWidth();
+            send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 8, MotionEvent.ACTION_MOVE, width * .15f); send(at, 10, MotionEvent.ACTION_UP, width * .15f);
+        }); SystemClock.sleep(850);
+        main(() -> {
+            require(clearRequests == 0 && row.surface.getTranslationX() == 0, "short fast fling springs back without deleting");
+            long at = SystemClock.uptimeMillis(); send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 50, MotionEvent.ACTION_MOVE, row.getWidth() * .2f); send(at, 60, MotionEvent.ACTION_CANCEL, row.getWidth() * .2f); send(at, 70, MotionEvent.ACTION_MOVE, row.getWidth() * .5f);
+            require(clearRequests == 0 && row.surface.getTranslationX() == 0, "canceled right drag consumes trailing movement");
+            row.showActions(true);
+        }); SystemClock.sleep(850);
+        main(() -> {
+            long at = SystemClock.uptimeMillis(); send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, row.getWidth() * .55f); send(at, 300, MotionEvent.ACTION_UP, row.getWidth() * .55f);
+            require(clearRequests == 0, "right drag from expanded actions only closes them");
+        }); SystemClock.sleep(850);
+        main(() -> {
+            require(row.surface.getTranslationX() == 0, "expanded actions finish closing");
+            long at = SystemClock.uptimeMillis(); send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, row.getWidth() * .4f);
+            require(clearRequests == 1, "a fresh right drag after closing actions can clear");
+        }); SystemClock.sleep(1350);
+        main(() -> {
+            require(clearRequests == 1 && row.getAlpha() == 1 && row.surface.getTranslationX() == 0 && !(boolean) field("thresholdSubmitted"), "unconfirmed right request restores the same row after timeout");
+            send(SystemClock.uptimeMillis(), 0, MotionEvent.ACTION_UP, 0);
+            require(openedNotice == null, "timeout recovery still consumes the old UP");
+        });
+
+        mountCenter(List.of(one, two, ongoing));
+        main(() -> {
+            row = header(0); long at = SystemClock.uptimeMillis(); float width = row.getWidth();
+            send(at, 0, MotionEvent.ACTION_DOWN, 0);
+            MotionEvent vertical = MotionEvent.obtain(at, at + 50, MotionEvent.ACTION_MOVE, width * .35f, row.getHeight() / 2f + dp(40), 0); row.dispatchTouchEvent(vertical); vertical.recycle();
+            send(at, 100, MotionEvent.ACTION_MOVE, width * .5f); send(at, 150, MotionEvent.ACTION_UP, width * .5f);
+            require(clearRequests == 0, "vertical intent cannot turn into a right clear");
+            at += 200; send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 50, MotionEvent.ACTION_MOVE, width * .2f);
+            MotionEvent.PointerProperties[] properties = {new MotionEvent.PointerProperties(), new MotionEvent.PointerProperties()};
+            MotionEvent.PointerCoords[] coordinates = {new MotionEvent.PointerCoords(), new MotionEvent.PointerCoords()};
+            for (int i = 0; i < 2; i++) { properties[i].id = i; properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER; coordinates[i].x = width * (.55f + i * .1f); coordinates[i].y = row.getHeight() / 2f; coordinates[i].pressure = coordinates[i].size = 1; }
+            MotionEvent multi = MotionEvent.obtain(at, at + 60, MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2, properties, coordinates, 0, 0, 1, 1, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0); row.dispatchTouchEvent(multi); multi.recycle();
+            send(at, 100, MotionEvent.ACTION_MOVE, width * .5f); send(at, 150, MotionEvent.ACTION_UP, width * .5f);
+            require(clearRequests == 0 && row.surface.getTranslationX() == 0, "second pointer cancels right clear and consumes remaining sequence");
+            at += 200; send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 50, MotionEvent.ACTION_MOVE, -dp(40)); send(at, 100, MotionEvent.ACTION_MOVE, width * .5f); send(at, 150, MotionEvent.ACTION_CANCEL, width * .5f);
+            require(clearRequests == 0, "left-first gesture cannot reverse into right clear");
+            at += 200; send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 50, MotionEvent.ACTION_MOVE, width * .2f); row.layout(0, 0, row.getWidth() - dp(10), row.getHeight()); send(at, 100, MotionEvent.ACTION_MOVE, width * .5f); send(at, 150, MotionEvent.ACTION_UP, width * .5f);
+            require(clearRequests == 0 && row.surface.getTranslationX() == 0, "size change cancels right clear before threshold");
+        });
+
+        mountCenter(List.of(one, two, ongoing));
+        main(() -> {
+            row = header(2); long at = SystemClock.uptimeMillis(); send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, row.getWidth() * .5f); send(at, 300, MotionEvent.ACTION_UP, row.getWidth() * .5f);
+            require(clearRequests == 0, "ongoing notification cannot be right-cleared");
+            row = header(0); at += 500; send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, row.getWidth() * .4f);
+            center.update(true, List.of(notice(81, "right-one", 900, false), two, ongoing));
+            require(!(boolean) field("thresholdSubmitted") && row.surface.getTranslationX() == 0 && row.getAlpha() == 1, "replacement identity cancels pending right-clear pose");
+            send(at, 150, MotionEvent.ACTION_MOVE, row.getWidth() * .6f); send(at, 200, MotionEvent.ACTION_UP, row.getWidth() * .6f);
+            require(clearRequests == 1, "old gesture cannot clear a replacement notification");
+        });
+
+        StatusBarNotification childA = notice(91, "right-group", 1000, false), childB = notice(92, "right-group", 950, false);
+        mountCenter(List.of(childA, childB, ongoing));
+        main(() -> {
+            row = header(0); long at = SystemClock.uptimeMillis(); send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, row.getWidth() * .4f);
+            require(clearRequests == 1 && requested.size() == 2 && requested.stream().noneMatch(item -> item.getKey().equals(ongoing.getKey())), "collapsed group right clear selects its clearable members only");
+        });
+        mountCenter(List.of(childA, childB, ongoing));
+        main(() -> header(0).surface.performClick()); test.waitForIdleSync(); SystemClock.sleep(220); test.waitForIdleSync();
+        main(() -> {
+            ViewGroup children = (ViewGroup) ((ViewGroup) list().getChildAt(0)).getChildAt(1); row = (NotificationSwipeRow) children.getChildAt(0);
+            long at = SystemClock.uptimeMillis(); send(at, 0, MotionEvent.ACTION_DOWN, 0); send(at, 100, MotionEvent.ACTION_MOVE, row.getWidth() * .4f);
+            require(clearRequests == 1 && requested.size() == 1 && requested.get(0).getKey().equals(childA.getKey()), "expanded child right clear protects its sibling");
+            center.update(false, List.of());
+            require(!row.isAttachedToWindow() && !(boolean) field("thresholdSubmitted") && field("velocity") == null, "disconnect releases pending right clear and tracking");
+        }); SystemClock.sleep(1300);
+        main(() -> require(clearRequests == 1 && list().getChildCount() == 0, "late timeout cannot revive disconnected notifications"));
     }
 }

@@ -28,7 +28,7 @@ final class ControlSourceTabs extends FrameLayout {
         int[] icons={R.drawable.ic_ms_tune,R.drawable.ic_ms_view_carousel,R.drawable.ic_ms_apps};
         for (int i=0;i<tabs.length;i++) {
             int item=i; Button tab=new Button(context); tabs[i]=tab; tab.setTag("library-tab-"+IDS[i]); tab.setText(LABELS[i]); tab.setContentDescription(LABELS[i]);
-            tab.setTextSize(8); tab.setAllCaps(false); tab.setSingleLine(); tab.setIncludeFontPadding(false); tab.setGravity(Gravity.CENTER);
+            Ui.textSize(tab, 8); tab.setAllCaps(false); tab.setSingleLine(); tab.setIncludeFontPadding(false); tab.setGravity(Gravity.CENTER);
             tab.setMinWidth(0); tab.setMinimumWidth(0); tab.setMinHeight(0); tab.setMinimumHeight(0); tab.setPadding(0,0,0,0); tab.setBackgroundColor(Color.TRANSPARENT); tab.setStateListAnimator(null);
             android.graphics.drawable.Drawable icon=Ui.icon(context,icons[i],Ui.TEXT); icon.setBounds(0,0,Ui.dp(context,11),Ui.dp(context,11)); tab.setCompoundDrawables(null,icon,null,null); tab.setCompoundDrawablePadding(0);
             tab.setOnClickListener(v -> commit(item)); addView(tab);

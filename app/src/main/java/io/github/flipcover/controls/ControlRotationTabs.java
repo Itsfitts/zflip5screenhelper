@@ -24,7 +24,7 @@ final class ControlRotationTabs extends FrameLayout {
         original=new OriginalLiquidTabs(context,this::commit,LABELS,new int[0],PanelUi.SLOT); addView(original,new LayoutParams(-1,-1));
         for (int i=0;i<tabs.length;i++) {
             int item=i; Button tab=new Button(context); tabs[i]=tab; tab.setTag("detail-angle-"+i); tab.setText(LABELS[i]); tab.setContentDescription("外屏旋转至"+LABELS[i]);
-            tab.setTextSize(PanelUi.ACTION); tab.setAllCaps(false); tab.setSingleLine(); tab.setIncludeFontPadding(false); tab.setGravity(Gravity.CENTER);
+            Ui.textSize(tab, PanelUi.ACTION); tab.setAllCaps(false); tab.setSingleLine(); tab.setIncludeFontPadding(false); tab.setGravity(Gravity.CENTER);
             tab.setMinWidth(0); tab.setMinimumWidth(0); tab.setMinHeight(0); tab.setMinimumHeight(0); tab.setPadding(0,0,0,0); tab.setStateListAnimator(null);
             tab.setOnClickListener(v -> commit(item)); addView(tab);
         }

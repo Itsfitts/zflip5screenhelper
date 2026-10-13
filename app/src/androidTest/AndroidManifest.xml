@@ -4,6 +4,9 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <activity android:name="io.github.flipcover.controls.AppLaunchFixtureActivity$Detail" android:exported="true" android:resizeableActivity="true" android:theme="@android:style/Theme.Material.NoActionBar" />
+        <activity-alias android:name="io.github.flipcover.controls.CatalogHiddenAlias" android:targetActivity="io.github.flipcover.controls.AppLaunchFixtureActivity" android:enabled="false" android:exported="true" android:label="AAA 模式和日常程序测试" android:icon="@android:drawable/ic_dialog_info">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
         <activity android:name="io.github.flipcover.controls.LauncherLaunchFixtureActivity" android:exported="true" android:resizeableActivity="true" android:label="启动卡片验证" android:theme="@android:style/Theme.Material.NoActionBar">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>

@@ -93,7 +93,9 @@ final class AppCatalogCache {
                 int requested = generation; scans++;
                 Map<String, Entry> found = new LinkedHashMap<>();
                 for (ResolveInfo info : context.getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
-                    if (info.activityInfo == null || !info.activityInfo.exported || !info.activityInfo.enabled || !info.activityInfo.applicationInfo.enabled) continue;
+                    // The resolver applies runtime enabled overrides. ActivityInfo.enabled can
+                    // still be the manifest default for an alias enabled by the user.
+                    if (info.activityInfo == null || !info.activityInfo.exported) continue;
                     String id = "app:" + new ComponentName(info.activityInfo.packageName, info.activityInfo.name).flattenToString();
                     if (found.containsKey(id)) continue;
                     String label; labelReads++;

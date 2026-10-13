@@ -24,7 +24,7 @@ import android.widget.FrameLayout;
 import com.kyant.backdrop.catalog.components.LiquidTensionGeometry;
 import com.kyant.backdrop.catalog.components.LiquidTensionMotion;
 
-/** Reveal actions; a continued two-button pull merges them before release can request clearing. */
+/** Left pull reveals/merges actions; right pull can request clearing before release. */
 final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost {
     final View surface;
     private final View rail;
@@ -52,6 +52,7 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
     private float mergeProgress;
     private boolean clearArmed;
     private boolean thresholdSubmitted;
+    private boolean rightClearEligible, dismissToRight;
     private float thresholdOpacity = 1;
     private ValueAnimator thresholdFade;
     private final Runnable thresholdTimeout = () -> { if (thresholdSubmitted && !this.dismissing) cancelDismiss(); };
@@ -117,7 +118,7 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
         // Background suppression must survive hardware display-list reuse, including after rest.
         surface.invalidate(); if (settingsFace != null) settingsFace.invalidate(); if (clearFace != null) clearFace.invalidate();
     }
-    void cancelMergedAction() { if (touching || actionFrameQueued || mergeProgress > 0) { if (touching) targetOpen = startedOpen; cancelTouch(); sequenceCanceled = true; } }
+    void cancelMergedAction() { if (thresholdSubmitted) { cancelDismiss(); return; } if (touching || actionFrameQueued || mergeProgress > 0) { if (touching) targetOpen = startedOpen; cancelTouch(); sequenceCanceled = true; } }
     void showActions(boolean show) {
         if (dismissing || thresholdSubmitted) return;
         if (targetOpen == show && spring != null) return;
@@ -151,7 +152,7 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
         float travel = Ui.dp(getContext(), PanelUi.SLOT) * .5f * mergeProgress;
         if (settingsFace != null) actionTransform(settingsFace, actionMotion.getCount() - 1, travel);
         if (clearFace != null) actionTransform(clearFace, actionMotion.getCount() < 2 ? -1 : 0, -travel);
-        if (armed) submitThreshold();
+        if (armed) submitThreshold(false);
     }
     private void actionTransform(View face, int node, float mergeTravel) {
         float scale = node < 0 || mergeProgress > 0 ? 1 : actionMotion.scale(node);
@@ -161,26 +162,32 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
         face.setTranslationX(position + mergeTravel - face.getWidth() * PanelUi.ACTION_SCALE * .5f * (1 - scale));
     }
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) { super.onLayout(changed, left, top, right, bottom); updateMerge(surface.getTranslationX(), 0); }
-    private void submitThreshold() {
-        if (thresholdSubmitted) return;
-        thresholdSubmitted = sequenceCanceled = true; dragging = touching = clearArmed = false; mergeProgress = mergeTarget = 1;
-        stopSpring(); stopActionFrames(); releaseVelocity(); targetOpen = true;
+    private boolean canClear() { return clearAction != null && clearAction.getVisibility() == VISIBLE && clearAction.isEnabled(); }
+    private void submitThreshold(boolean toRight) {
+        if (thresholdSubmitted || !canClear()) return;
+        thresholdSubmitted = sequenceCanceled = true; dragging = touching = clearArmed = false; dismissToRight = toRight;
+        stopSpring(); stopActionFrames(); releaseVelocity(); targetOpen = !toRight;
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        float travel = Ui.dp(getContext(), PanelUi.SLOT) * .5f; settingsFace.setTranslationX(travel); clearFace.setTranslationX(-travel);
+        if (toRight) {
+            setRailVisible(false); performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+        } else {
+            mergeProgress = mergeTarget = 1;
+            float travel = Ui.dp(getContext(), PanelUi.SLOT) * .5f; settingsFace.setTranslationX(travel); clearFace.setTranslationX(-travel);
+            thresholdFade = ValueAnimator.ofFloat(1, 0); thresholdFade.setDuration(180); thresholdFade.setInterpolator(new android.view.animation.LinearInterpolator());
+            thresholdFade.addUpdateListener(animation -> {
+                float value = (float) animation.getAnimatedValue(); thresholdOpacity = value;
+                invalidate(); if (value == 0) rail.setVisibility(INVISIBLE);
+            });
+            if (ValueAnimator.areAnimatorsEnabled()) thresholdFade.start();
+            else { thresholdOpacity = 0; rail.setVisibility(INVISIBLE); }
+        }
         setStateDescription("正在清除此通知");
-        thresholdFade = ValueAnimator.ofFloat(1, 0); thresholdFade.setDuration(180); thresholdFade.setInterpolator(new android.view.animation.LinearInterpolator());
-        thresholdFade.addUpdateListener(animation -> {
-            float value = (float) animation.getAnimatedValue(); thresholdOpacity = value;
-            invalidate(); if (value == 0) rail.setVisibility(INVISIBLE);
-        });
-        if (ValueAnimator.areAnimatorsEnabled()) thresholdFade.start();
-        else { thresholdOpacity = 0; rail.setVisibility(INVISIBLE); }
         // Keep this pose until the notification event confirms removal. Only failure/identity
         // changes restore it; UP or reverse motion cannot split the pair or resubmit.
         postDelayed(thresholdTimeout, 1200); clearAction.performClick();
     }
     private void resetThreshold() {
-        removeCallbacks(thresholdTimeout); thresholdSubmitted = false; thresholdOpacity = 1;
+        removeCallbacks(thresholdTimeout); thresholdSubmitted = dismissToRight = rightClearEligible = false; thresholdOpacity = 1;
         if (thresholdFade != null) { thresholdFade.removeAllUpdateListeners(); thresholdFade.cancel(); thresholdFade = null; }
     }
     private void configureActions() {
@@ -258,17 +265,19 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
     // Keep the exact current pose until the system confirms removal; never close the rail first.
     void prepareDismiss() { if (!dismissing) { stopSpring(); stopActionFrames(); } }
     boolean dismissing() { return dismissing; }
-    boolean dismiss(Runnable complete) {
+    boolean dismissesRight() { return dismissToRight; }
+    boolean dismiss(Runnable complete) { return dismiss(complete, dismissToRight); }
+    boolean dismiss(Runnable complete, boolean toRight) {
         if (dismissing) { dismissComplete = complete; return true; }
         if (!ValueAnimator.areAnimatorsEnabled() || !isAttachedToWindow() || getWindowVisibility() != VISIBLE || !isShown() || getAlpha() == 0) return false;
         if (!getGlobalVisibleRect(new android.graphics.Rect())) return false;
         stopSpring(); stopActionFrames(); releaseVelocity(); removeCallbacks(thresholdTimeout); dragging = touching = false; sequenceCanceled = dismissing = true; dismissComplete = complete;
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS); if (!thresholdSubmitted) setRailVisible(false);
-        float from = surface.getTranslationX(), fromPull = pull, fromAlpha = getAlpha(), target = -getWidth() * 1.25f;
+        float from = surface.getTranslationX(), fromPull = pull, fromAlpha = getAlpha(), target = getWidth() * (toRight ? 1.25f : -1.25f);
         spring = ValueAnimator.ofFloat(0, 1); spring.setDuration(360); spring.setInterpolator(new android.view.animation.PathInterpolator(.2f, .55f, .5f, 1));
         spring.addUpdateListener(animation -> {
             float value = (float) animation.getAnimatedValue(), shape = value < .4f ? fromPull + (1.35f - fromPull) * value / .4f : 1.35f * (1 - value) / .6f;
-            render(from + (target - from) * value, shape, 1); setAlpha(fromAlpha * (1 - value));
+            render(from + (target - from) * value, shape, toRight ? 0 : 1); setAlpha(fromAlpha * (1 - value));
         });
         spring.addListener(new AnimatorListenerAdapter() { @Override public void onAnimationEnd(Animator animation) { if (spring != animation) return; spring = null; finishDismiss(); } }); spring.start(); return true;
     }
@@ -391,13 +400,14 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
         if (action == MotionEvent.ACTION_DOWN) {
             interrupted = spring != null; stopSpring(); startX = event.getX(); startY = event.getY(); startOffset = offset;
             startedOpen = targetOpen; dragging = false; vertical = false; railTouch = !interrupted && !actionFrameQueued && opened() && startX >= getWidth() + surface.getTranslationX();
+            rightClearEligible = !startedOpen && !interrupted && Math.abs(startOffset) < 1;
             return (opened() || interrupted) && !railTouch;
         }
         if (action == MotionEvent.ACTION_POINTER_DOWN) { targetOpen = startedOpen; cancelGesture(); return false; }
         if (action == MotionEvent.ACTION_MOVE && !vertical && !railTouch) {
             float dx = event.getX() - startX, dy = event.getY() - startY;
             if (Math.abs(dy) > slop && Math.abs(dy) >= Math.abs(dx)) vertical = true;
-            if (Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy) * 1.15f) { dragging = true; getParent().requestDisallowInterceptTouchEvent(true); reveal.run(); setRailVisible(true); move(startOffset + dx); return true; }
+            if (Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy) * 1.15f) { if (dx < 0) rightClearEligible = false; dragging = true; getParent().requestDisallowInterceptTouchEvent(true); reveal.run(); setRailVisible(true); move(startOffset + dx); return true; }
         }
         return dragging;
     }
@@ -407,6 +417,7 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
             float dx = event.getX() - startX, dy = event.getY() - startY;
             if (!dragging && Math.abs(dy) > slop && Math.abs(dy) >= Math.abs(dx)) { vertical = true; showActions(startedOpen); }
             if (!vertical && (dragging || Math.abs(dx) > slop && Math.abs(dx) > Math.abs(dy) * 1.15f)) {
+                if (!dragging && dx < 0) rightClearEligible = false;
                 dragging = true; getParent().requestDisallowInterceptTouchEvent(true); reveal.run(); setRailVisible(true);
                 move(startOffset + dx);
             }
@@ -432,6 +443,8 @@ final class NotificationSwipeRow extends FrameLayout implements SharedGlassHost 
         }
         if (sequenceCanceled) return true;
         if (velocity != null) velocity.addMovement(event); boolean result = super.dispatchTouchEvent(event);
+        // The first intercepted MOVE cancels the child without reaching our onTouchEvent.
+        if (action == MotionEvent.ACTION_MOVE && touching && dragging && !vertical && rightClearEligible && event.getX() - startX > getWidth() * .3f) submitThreshold(true);
         if (action == MotionEvent.ACTION_UP && !dragging && !vertical && boundaryScroll != null && Math.abs(event.getX() - startX) < slop && Math.abs(event.getY() - startY) < slop) boundaryScroll.cardFeedback(this);
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_POINTER_DOWN) { touching = false; releaseVelocity(); } return result;
     }

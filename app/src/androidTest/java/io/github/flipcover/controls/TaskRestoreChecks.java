@@ -55,6 +55,7 @@ final class TaskRestoreChecks {
                 main(() -> {
                     owner[0] = new CoverService(); try { Method attach = ContextWrapper.class.getDeclaredMethod("attachBaseContext", Context.class); attach.setAccessible(true); attach.invoke(owner[0], activity); } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
                     CoverService.instance = owner[0]; owner[0].prefs = prefs; owner[0].display = virtual.getDisplay(); owner[0].screenContext = activity.createDisplayContext(virtual.getDisplay());
+                    field(owner[0], "displaySignature", virtual.getDisplay().getDisplayId() + ":" + virtual.getDisplay().getRotation() + ":" + Displays.size(virtual.getDisplay()) + ":" + owner[0].screenContext.getResources().getDisplayMetrics().density + ":" + virtual.getDisplay().getCutout());
                     DockGeometry.Box frame = new DockGeometry.Box(0, 0, 720, 748); field(owner[0], "panelFrame", frame); field(owner[0], "hubFrame", frame); field(owner[0], "cardSafeFrame", frame);
                     field(owner[0], "launcherFrameRotation", virtual.getDisplay().getRotation()); field(owner[0], "placement", DockGeometry.resolve(720, 748, List.of(), 340f / 160, prefs.corner(0), prefs.widthRatio(), prefs.heightRatio(), true)); field(owner[0], "hubSceneProgress", 1f);
                     page[0] = new AppHubView(activity, prefs, new AppHubView.Listener() { public void action(String id) { } public void editFavorites() { } public void editPinned() { } public void expand(boolean value) { } public void close() { } public void openTask(RecentTasks.Task task) { invoke(owner[0], "openHubTask", RecentTasks.Task.class, task); } });
@@ -69,7 +70,7 @@ final class TaskRestoreChecks {
                     page[0].recentBusy(true); field(owner[0], "signature", "fixture removed foreground navigation");
                     invoke(owner[0], "reconcile", boolean.class, false);
                     require(field(owner[0], "hub") == page[0] && page[0].taskPage() == tasksPage && carousel.isAttachedToWindow(), count + " tasks: removing foreground retains carousel and pending task owner");
-                    require((boolean) field(owner[0], "taskInsetsDeferred") && (boolean) field(carousel, "tracking") && force.offset == offset, count + " tasks: inset changes defer without cancelling pointer or resetting position");
+                    require((boolean) field(owner[0], "hubInsetsDeferred") && (boolean) field(carousel, "tracking") && force.offset == offset, count + " tasks: inset changes defer without cancelling pointer or resetting position");
                     android.view.MotionEvent move = android.view.MotionEvent.obtain(down, down + 40, android.view.MotionEvent.ACTION_MOVE, x + 80, y, 0); carousel.dispatchTouchEvent(move); move.recycle();
                     require((force.offset != offset || force.tx[0] != edgePull) && (boolean) field(carousel, "tracking"), count + " tasks: same pointer continues moving after foreground removal");
                     android.view.MotionEvent cancel = android.view.MotionEvent.obtain(down, down + 60, android.view.MotionEvent.ACTION_CANCEL, x + 80, y, 0); carousel.dispatchTouchEvent(cancel); cancel.recycle();

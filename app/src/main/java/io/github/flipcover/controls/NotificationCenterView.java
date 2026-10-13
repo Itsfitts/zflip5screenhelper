@@ -215,8 +215,8 @@ final class NotificationCenterView extends LinearLayout {
             retiring = true;
             boolean animated = header.swipe.dismiss(() -> removeGroup(this));
             for (Card card : cards.values()) {
-                if (animated) card.swipe.dismiss(() -> { });
-                else animated = card.swipe.dismiss(() -> removeGroup(this));
+                if (animated) card.swipe.dismiss(() -> { }, header.swipe.dismissesRight());
+                else animated = card.swipe.dismiss(() -> removeGroup(this), header.swipe.dismissesRight());
             }
             retiring = animated; return animated;
         }

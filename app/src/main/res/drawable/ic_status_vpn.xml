@@ -1,0 +1,5 @@
+<!-- Outlined horizontal key for the connected VPN status. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.8" android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M10.2,10H22V14H19V17H16V14H10.2A4.8,4.8 0,1 1,10.2 10Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M7.2,12A1.2,1.2 0,1 1,4.8 12A1.2,1.2 0,1 1,7.2 12Z" />
+</vector>

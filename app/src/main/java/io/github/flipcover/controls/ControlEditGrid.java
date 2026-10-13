@@ -74,7 +74,7 @@ final class ControlEditGrid extends ViewGroup {
         super.dispatchDraw(canvas);
         if (marker >= 0) { float inset = Ui.dp(getContext(), 3), x = marker % columns * getWidth() / (float) columns, y = marker / columns * cellHeight; canvas.drawRoundRect(x + inset, y + inset, x + getWidth() / (float) columns - inset, y + cellHeight - inset, Ui.dp(getContext(), 15), Ui.dp(getContext(), 15), outline); }
         if (items.isEmpty() && marker < 0) {
-            outline.setStyle(Paint.Style.FILL); outline.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 13, getResources().getDisplayMetrics())); outline.setTextAlign(Paint.Align.CENTER); canvas.drawText("点按或拖入下方按钮", getWidth() / 2f, getHeight() / 2f, outline); outline.setStyle(Paint.Style.STROKE);
+            outline.setStyle(Paint.Style.FILL); outline.setTextSize(13 * getResources().getDisplayMetrics().density); outline.setTextAlign(Paint.Align.CENTER); canvas.drawText("点按或拖入下方按钮", getWidth() / 2f, getHeight() / 2f, outline); outline.setStyle(Paint.Style.STROKE);
         }
     }
     @Override protected void onDetachedFromWindow() { for (int i = 0; i < getChildCount(); i++) getChildAt(i).animate().cancel(); super.onDetachedFromWindow(); }

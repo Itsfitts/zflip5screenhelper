@@ -48,7 +48,7 @@ final class HubPerformanceChecks {
     private Map<String, String> baselineCatalog() {
         List<String> ids = new ArrayList<>();
         for (ResolveInfo info : instrumentation.getTargetContext().getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
-            if (info.activityInfo != null && info.activityInfo.exported && info.activityInfo.enabled) {
+            if (info.activityInfo != null && info.activityInfo.exported) {
                 String id = "app:" + new ComponentName(info.activityInfo.packageName, info.activityInfo.name).flattenToString(); if (!ids.contains(id)) ids.add(id);
             }
         }
@@ -109,6 +109,7 @@ final class HubPerformanceChecks {
         }
         evidence.put("openings", openings);
         checkInterruptedIcons(activity, prefs, entries);
+        checkEnabledAlias(activity, prefs);
         checkPackageChange(activity);
         main(() -> { cache.trimMemory(); require(cache.iconBytes() == 0, "low-memory trim releases cached bitmaps without recycling displayed images"); });
         ShizukuBridge bridge = CoverApp.bridge(activity); int[] notifications = {0}; Runnable listener = () -> notifications[0]++;
@@ -145,6 +146,54 @@ final class HubPerformanceChecks {
         } finally { pm.setComponentEnabledSetting(own, previous, PackageManager.DONT_KILL_APP); }
         try { await(() -> cache.ready() && cache.snapshot().stream().anyMatch(entry -> entry.id().equals(id)), "re-enabled application returns after package broadcast"); }
         finally { main(() -> cache.unobserve(observer)); }
+    }
+    private void checkEnabledAlias(Activity activity, Prefs prefs) throws Exception {
+        PackageManager pm = activity.getPackageManager();
+        ComponentName alias = new ComponentName(instrumentation.getContext().getPackageName(), "io.github.flipcover.controls.CatalogHiddenAlias");
+        String id = "app:" + alias.flattenToString(), previousSort = prefs.hubSort();
+        int previous = pm.getComponentEnabledSetting(alias);
+        AppHubView[] hub = {null};
+        instrumentation.getUiAutomation().adoptShellPermissionIdentity("android.permission.CHANGE_COMPONENT_ENABLED_STATE");
+        try {
+            pm.setComponentEnabledSetting(alias, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+            main(() -> {
+                prefs.data.edit().putString("hub_sort", "name").commit();
+                hub[0] = new AppHubView(activity, prefs, new AppHubView.Listener() { public void action(String action) { } public void editFavorites() { } public void editPinned() { } public void expand(boolean expanded) { } public void close() { } });
+                activity.setContentView(hub[0]); find(hub[0], EditText.class).setText("日常程序测试");
+                require(hub[0].isAttachedToWindow() && cache.observerCount() > 0, "alias check uses a mounted catalog observer before disabling the host activity");
+            });
+            await(() -> cache.ready() && !hasAlias(id), "manifest-disabled alias stays absent");
+            for (int round = 0; round < 2; round++) {
+                int generation = cache.contentGeneration(), scans = cache.scanCount();
+                pm.setComponentEnabledSetting(alias, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+                ResolveInfo resolved = pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(alias.getPackageName()), 0).stream().filter(info -> info.activityInfo.name.equals(alias.getClassName())).findFirst().orElseThrow();
+                require(!resolved.activityInfo.enabled, "fixture reproduces enabled override with false manifest default");
+                try { await(() -> cache.ready() && hasAlias(id), "package-change broadcast adds user-enabled alias without reopening"); }
+                catch (AssertionError failure) { throw new AssertionError(failure.getMessage() + "; generation=" + generation + "->" + cache.contentGeneration() + " scans=" + scans + "->" + cache.scanCount() + " observers=" + cache.observerCount() + " ready=" + cache.ready(), failure); }
+                await(() -> {
+                    boolean[] visible = {false};
+                    main(() -> { AppWorkspaceView grid = hub[0].findViewWithTag("hub-grid"); visible[0] = grid.getCount() == 1 && grid.getChildCount() == 1 && find(grid.getChildAt(0), ImageView.class).getDrawable() instanceof android.graphics.drawable.BitmapDrawable; });
+                    return visible[0];
+                }, "mounted floating search displays the enabled alias and its icon");
+                main(() -> require(nativeShowsAlias(activity, prefs, id), "native card renders the same enabled alias"));
+                pm.setComponentEnabledSetting(alias, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+                await(() -> cache.ready() && !hasAlias(id), "package-change broadcast removes disabled alias");
+                main(() -> {
+                    AppWorkspaceView grid = hub[0].findViewWithTag("hub-grid"); require(grid.getCount() == 0, "mounted search removes the disabled alias");
+                    require(!nativeShowsAlias(activity, prefs, id), "native card removes the disabled alias");
+                });
+            }
+        } finally {
+            pm.setComponentEnabledSetting(alias, previous, PackageManager.DONT_KILL_APP);
+            instrumentation.getUiAutomation().dropShellPermissionIdentity();
+            main(() -> { if (hub[0] != null) hub[0].dispose(); activity.setContentView(new FrameLayout(activity)); prefs.data.edit().putString("hub_sort", previousSort).commit(); });
+        }
+    }
+    private boolean hasAlias(String id) { return cache.snapshot().stream().anyMatch(entry -> entry.id().equals(id)); }
+    private boolean nativeShowsAlias(Activity activity, Prefs prefs, String id) {
+        java.util.Set<String> shown = new java.util.HashSet<>();
+        new LauncherWidgetViews(activity, prefs, activity.getDisplay(), -1, new LauncherWidgetBridge.State(), new LauncherWidgetBridge.Recents(List.of(), false, false, false, false, ""), shown, new java.util.HashSet<>(), new HashMap<>()).render();
+        return shown.contains(id);
     }
     private <T extends View> T find(View view, Class<T> type) { if (type.isInstance(view)) return type.cast(view); if (view instanceof ViewGroup group) for (int i = 0; i < group.getChildCount(); i++) { T found = find(group.getChildAt(i), type); if (found != null) return found; } return null; }
 }

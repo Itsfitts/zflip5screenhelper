@@ -17,20 +17,25 @@ final class PanelUi {
     private PanelUi() { }
     /** Local to control surfaces: retain the target display/density, isolate user font preferences. */
     static Context controlContext(Context source) { return source instanceof ControlContext ? source : new ControlContext(source); }
+    static boolean fixedText(Context context) {
+        while (context instanceof android.content.ContextWrapper wrapper) { if (context instanceof ControlContext) return true; context = wrapper.getBaseContext(); }
+        return false;
+    }
     private static final class ControlContext extends android.view.ContextThemeWrapper {
         ControlContext(Context source) {
             super(source, 0);
-            android.content.res.Configuration override = new android.content.res.Configuration(); override.fontScale = 1f;
+            // A blank override can lose a base context's density override and use the host density.
+            android.content.res.Configuration override = new android.content.res.Configuration(source.getResources().getConfiguration()); override.fontScale = 1f;
             if (android.os.Build.VERSION.SDK_INT >= 31) override.fontWeightAdjustment = 0;
             applyOverrideConfiguration(override); getTheme().setTo(source.getTheme()); getTheme().applyStyle(R.style.ControlTypography, true);
         }
     }
     static Button button(Context c,String label,Runnable action) { Button button=Ui.button(c,label,action); action(button); return button; }
-    static void action(Button button) { Context c=button.getContext(); button.setTextSize(ACTION); button.setMinHeight(Ui.dp(c,SLOT)); button.setMinimumHeight(Ui.dp(c,SLOT)); button.setPadding(Ui.dp(c,INSET),Ui.dp(c,4),Ui.dp(c,INSET),Ui.dp(c,4)); }
+    static void action(Button button) { Context c=button.getContext(); Ui.textSize(button, ACTION); button.setMinHeight(Ui.dp(c,SLOT)); button.setMinimumHeight(Ui.dp(c,SLOT)); button.setPadding(Ui.dp(c,INSET),Ui.dp(c,4),Ui.dp(c,INSET),Ui.dp(c,4)); }
     static ImageButton icon(Context c,int icon,String label,Runnable action) { return Ui.iconButton(c,icon,label,action); }
     static TextView title(Context c,String label) { TextView text=Ui.heading(c,label,TITLE); text.setSingleLine(); text.setEllipsize(android.text.TextUtils.TruncateAt.END); return text; }
     static EditText search(Context c,String hint,String value) {
-        EditText input=new EditText(c); input.setSingleLine(); input.setTextSize(BODY); input.setTextColor(Ui.TEXT); input.setHintTextColor(Ui.MUTED); input.setHint(hint); input.setText(value); input.setPadding(Ui.dp(c,INSET),0,Ui.dp(c,INSET),0); input.setMinimumHeight(Ui.dp(c,SLOT)); input.setBackground(Ui.background(c,Ui.SURFACE,1000)); input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS); return input;
+        EditText input=new EditText(c); input.setSingleLine(); Ui.textSize(input, BODY); input.setTextColor(Ui.TEXT); input.setHintTextColor(Ui.MUTED); input.setHint(hint); input.setText(value); input.setPadding(Ui.dp(c,INSET),0,Ui.dp(c,INSET),0); input.setMinimumHeight(Ui.dp(c,SLOT)); input.setBackground(Ui.background(c,Ui.SURFACE,1000)); input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS); return input;
     }
     static LinearLayout row(Context c,int icon,String title,String subtitle,Runnable action) {
         LinearLayout row=Ui.row(c); row.setMinimumHeight(Ui.dp(c,SLOT)); row.setPadding(0,Ui.dp(c,GAP),0,Ui.dp(c,GAP));

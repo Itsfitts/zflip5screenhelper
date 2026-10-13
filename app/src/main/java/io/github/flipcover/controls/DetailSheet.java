@@ -25,7 +25,7 @@ final class DetailSheet extends FrameLayout {
     private boolean compactGlassControls;
     private boolean panelStyle;
     void panelStyle() {
-        panelStyle=true; title.setTextSize(PanelUi.TITLE); title.setSingleLine(); title.setEllipsize(android.text.TextUtils.TruncateAt.END); title.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        panelStyle=true; Ui.textSize(title, PanelUi.TITLE); title.setSingleLine(); title.setEllipsize(android.text.TextUtils.TruncateAt.END); title.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
         header.removeView(closeButton); header.setMinimumHeight(Ui.dp(getContext(),PanelUi.SLOT));
         header.setPadding(Ui.dp(getContext(),PanelUi.INSET),0,Ui.dp(getContext(),2),0); content.setPadding(Ui.dp(getContext(),PanelUi.INSET),0,Ui.dp(getContext(),PanelUi.INSET),Ui.dp(getContext(),PanelUi.GAP));
         for (int i=0;i<header.getChildCount();i++) if (header.getChildAt(i)!=title) { View action=header.getChildAt(i); action.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(getContext(),PanelUi.SLOT),Ui.dp(getContext(),PanelUi.SLOT))); action.setPadding(Ui.dp(getContext(),8),Ui.dp(getContext(),8),Ui.dp(getContext(),8),Ui.dp(getContext(),8)); }
@@ -79,7 +79,7 @@ final class DetailSheet extends FrameLayout {
     }
     void footer(String text, Runnable action) {
         if (footer != null) card.removeView(footer);
-        footer = Ui.button(getContext(), text, action); ((TextView) footer).setTextSize(11);
+        footer = Ui.button(getContext(), text, action); Ui.textSize((TextView) footer, 11);
         footer.setMinimumHeight(Ui.dp(getContext(), 34)); ((android.widget.Button) footer).setMinHeight(Ui.dp(getContext(), 34));
         if (panelStyle) PanelUi.action((android.widget.Button)footer);
         float radius = Ui.dp(getContext(), 18); float[] corners = {0, 0, 0, 0, radius, radius, radius, radius};
@@ -104,14 +104,14 @@ final class DetailSheet extends FrameLayout {
     /** Launcher sheets share the control detail spring, with compact chrome and outside dismissal. */
     void launcherStyle() {
         panelStyle = true; header.removeView(closeButton); header.setMinimumHeight(Ui.dp(getContext(), 36));
-        title.setTextSize(11); title.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+        Ui.textSize(title, 11); title.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
         header.setPadding(Ui.dp(getContext(), 10), 0, Ui.dp(getContext(), 4), 0);
         content.setPadding(Ui.dp(getContext(), 8), 0, Ui.dp(getContext(), 8), Ui.dp(getContext(), 6));
         compactWidth(AppLauncherStyle.FOLDER_ACTION_WIDTH, 1); stableWidth();
     }
     /** Folder-only hierarchy: compact text and glyphs, with full-sized header touch targets. */
     void folderStyle(String name, int count, View edit) {
-        launcherStyle(); compactWidth(AppLauncherStyle.FOLDER_SHEET_WIDTH, 1); title.setTextSize(11);
+        launcherStyle(); compactWidth(AppLauncherStyle.FOLDER_SHEET_WIDTH, 1); Ui.textSize(title, 11);
         android.text.SpannableString label = new android.text.SpannableString(name + "  " + count + "/9");
         label.setSpan(new android.text.style.RelativeSizeSpan(.82f), name.length(), label.length(), 0);
         label.setSpan(new android.text.style.ForegroundColorSpan(Ui.MUTED), name.length(), label.length(), 0); title.setText(label);
@@ -125,7 +125,7 @@ final class DetailSheet extends FrameLayout {
     /** Settings opt into their own typography without changing runtime control sheets. */
     void settingsStyle() {
         runtimeTouch = false;
-        card.setBackground(Ui.background(getContext(), SettingsUi.SURFACE, 20)); title.setTextSize(20);
+        card.setBackground(Ui.background(getContext(), SettingsUi.SURFACE, 20)); Ui.textSize(title, 20);
         header.setPadding(Ui.dp(getContext(), 14), Ui.dp(getContext(), 6), Ui.dp(getContext(), 4), Ui.dp(getContext(), 6));
         content.setPadding(0, 0, 0, Ui.dp(getContext(), 8));
     }

@@ -20,20 +20,22 @@ final class ControlTypographyChecks {
         int[] cases = {0};
         try {
             test.runOnMainSync(() -> {
-                for (int width : new int[]{720, 748}) for (int columns : new int[]{3, 4, 5}) for (int preset : new int[]{0, 1, 2}) {
+                mismatchedFontMetrics(activity);
+                for (int dpi : new int[]{240, 340, 480}) for (int width : new int[]{720, 748}) for (int columns : new int[]{3, 4, 5}) for (int labelSize : new int[]{0, 1, 2}) for (int spacing : new int[]{0, 1, 2}) {
                     String baseline = null;
                     for (float scale : new float[]{1f, .85f, 1.3f, 1.5f, 2f}) for (int weight : new int[]{0, 300}) {
-                        Configuration configuration = new Configuration(activity.getResources().getConfiguration()); configuration.densityDpi = 340; configuration.fontScale = scale;
+                        Configuration configuration = new Configuration(activity.getResources().getConfiguration()); configuration.densityDpi = dpi; configuration.fontScale = scale;
                         if (Build.VERSION.SDK_INT >= 31) configuration.fontWeightAdjustment = weight;
                         Context context = new ContextThemeWrapper(activity.createConfigurationContext(configuration), R.style.AppTheme);
-                        Prefs prefs = new Prefs(context); prefs.data.edit().clear().putInt("panel_columns", columns).putInt("panel_label_size", preset).putInt("panel_density", preset).putBoolean("panel_media", true).putBoolean("panel_brightness", true).putBoolean("panel_volume", true).commit();
+                        Prefs prefs = new Prefs(context); prefs.data.edit().clear().putInt("panel_columns", columns).putInt("panel_label_size", labelSize).putInt("panel_density", spacing).putBoolean("panel_media", true).putBoolean("panel_brightness", true).putBoolean("panel_volume", true).commit();
                         prefs.saveActions("panel", List.of("wifi", "bluetooth", "data", "location", "torch", "dnd", "airplane", "rotation", "screenshot", "lock", "media", "apps", "system_controls", "external_devices"));
                         CoverService owner = new CoverService(); owner.screenContext = context; owner.prefs = prefs; owner.display = activity.getDisplay();
                         int height = width == 720 ? 748 : 720;
                         owner.placement = new DockGeometry.Placement(new DockGeometry.Box(0, 0, 0, 0), new DockGeometry.Box(0, 0, 0, 0), new DockGeometry.Box(0, 38, width, height - 104), DockGeometry.TOP, true);
                         View panel = owner.buildPanelContent("controls", new DockGeometry.Box(0, 0, width, height), 38);
-                        String sample = "width=" + width + ", columns=" + columns + ", preset=" + preset + ", scale=" + scale + ", weight=" + weight;
+                        String sample = "dpi=" + dpi + ", width=" + width + ", columns=" + columns + ", label=" + labelSize + ", spacing=" + spacing + ", scale=" + scale + ", weight=" + weight;
                         StringBuilder state = new StringBuilder(); capture(panel, width, height, state);
+                        checkIcons(panel, sample);
                         View preview = new Panels(owner, true).build("controls"); capture(preview, width, height, state);
                         ControlEditorView editor = new ControlEditorView(context, prefs, null, id -> { }, () -> { }); capture(editor, width, height, state);
                         editor.findViewWithTag("control-candidates-search").performClick(); capture(editor, width, height, state);
@@ -47,7 +49,7 @@ final class ControlTypographyChecks {
                         String current = state.toString();
                         if (baseline == null) baseline = current; else require(baseline.equals(current), "font preferences change control measurements: " + sample);
                         require(context.getResources().getConfiguration().fontScale == scale, "source font scale changed");
-                        require(context.getResources().getDisplayMetrics().densityDpi == 340 && panel.getResources().getDisplayMetrics().densityDpi == 340, "display density changed");
+                        require(context.getResources().getDisplayMetrics().densityDpi == dpi && panel.getResources().getDisplayMetrics().densityDpi == dpi, "display density changed: " + sample + ", source=" + context.getResources().getDisplayMetrics().densityDpi + ", panel=" + panel.getResources().getDisplayMetrics().densityDpi);
                         if (Build.VERSION.SDK_INT >= 31) require(context.getResources().getConfiguration().fontWeightAdjustment == weight, "source font weight changed");
                         View notifications = owner.buildPanelContent("notifications", new DockGeometry.Box(0, 0, width, height), 38);
                         require(notifications.getResources().getConfiguration().fontScale == scale, "notification surface opted into fixed fonts");
@@ -56,8 +58,31 @@ final class ControlTypographyChecks {
                     }
                 }
             });
-            return "PASS: " + cases[0] + " font/weight/layout cases; home, preview, editor/search, detail/media/input; source and notification isolation; 3/4/5 columns, all label/density presets, both orientations";
+            return "PASS: " + cases[0] + " font/weight/layout cases; 240/340/480 dpi; independent label/spacing presets; full-size glyphs; mismatched SP metrics; home, preview, editor/search, detail/media/input; source and notification isolation; 3/4/5 columns, both orientations";
         } finally { test.runOnMainSync(activity::finish); }
+    }
+    private static void mismatchedFontMetrics(Context source) {
+        Context fixed = PanelUi.controlContext(source);
+        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics(); metrics.setTo(fixed.getResources().getDisplayMetrics());
+        android.content.res.Resources resources = new android.content.res.Resources(fixed.getAssets(), metrics, new Configuration(fixed.getResources().getConfiguration()));
+        // Simulate an OEM font conversion that disagrees with Configuration.fontScale.
+        float before = fixed.getResources().getDisplayMetrics().scaledDensity;
+        resources.getDisplayMetrics().scaledDensity = resources.getDisplayMetrics().density * 2;
+        Context mismatched = new android.content.ContextWrapper(fixed) { @Override public android.content.res.Resources getResources() { return resources; } };
+        require(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 12, resources.getDisplayMetrics()) > 12 * metrics.density, "mismatched SP fixture is ineffective");
+        TextView text = Ui.text(mismatched, "移动数据", 12, Ui.TEXT);
+        require(Math.abs(text.getTextSize() - 12 * metrics.density) < .01f, "control text still uses scaled font metrics");
+        Ui.textSize(text, 17); require(Math.abs(text.getTextSize() - 17 * metrics.density) < .01f, "later resize reintroduces SP");
+        TextView input = PanelUi.search(mismatched, "搜索", ""); require(Math.abs(input.getTextSize() - PanelUi.BODY * metrics.density) < .01f, "search still uses SP");
+        require(fixed.getResources().getDisplayMetrics().scaledDensity == before, "fixture changes source resources");
+    }
+    private static void checkIcons(View panel, String sample) {
+        ViewGroup grid = panel.findViewWithTag("control-tile-grid");
+        for (int i = 0; i < grid.getChildCount(); i++) {
+            ViewGroup tile = (ViewGroup) grid.getChildAt(i), face = (ViewGroup) tile.getChildAt(0); View glyph = face.getChildAt(0), label = tile.getChildAt(1);
+            require(glyph.getWidth() == Ui.dp(glyph.getContext(), 23) && glyph.getHeight() == glyph.getWidth(), "text crushes glyph: " + sample);
+            require(face.getTop() >= 0 && face.getBottom() <= label.getTop() && label.getBottom() <= tile.getHeight(), "tile content overlaps or clips: " + sample);
+        }
     }
     private static void capture(View view, int width, int height, StringBuilder state) {
         view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)); view.layout(0, 0, width, height); append(view, state);

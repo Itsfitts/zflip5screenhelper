@@ -151,7 +151,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private Consumer<Boolean> hubBlurListener;
     private WindowManager hubBlurWindows;
     private String panelPage = "", signature = "", displaySignature = "";
-    private boolean taskInsetsDeferred;
+    private boolean hubInsetsDeferred;
     private record BrightnessRequest(Panels target, int displayId, int value, long deadline, long sequence, Runnable finished) { }
     private BrightnessRequest pendingBrightness, activeBrightness;
     private long brightnessSequence;
@@ -572,10 +572,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
             String nextDisplaySignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + selected.getCutout();
             String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets;
             if (!force && nextSignature.equals(signature) && dock != null && dock.isAttachedToWindow() && panelEntry != null && panelEntry.isAttachedToWindow()) { syncDockVisibility(); resumeNativeCardUpdates(); return; }
-            // App removal/restoration changes navigation insets without changing the display.
-            // Keep the live carousel, close queue and pointer owner until this task session ends.
-            if (!force && retainTaskSession(selected, size, rotation, density)) { taskInsetsDeferred = true; return; }
-            taskInsetsDeferred = false;
+            // IME and foreground changes can alter navigation insets on the same display.
+            // Retain the expanded launcher/search or task session until it closes; the
+            // existing window still handles IME resizing without losing its input connection.
+            if (!force && retainHubSession(nextDisplaySignature)) { hubInsetsDeferred = true; return; }
+            hubInsetsDeferred = false;
             if (!force && nextDisplaySignature.equals(displaySignature) && updateWindowInsets(selected, size, rotation, mandatory, navigation, navigationBounds, systemInsets)) {
                 signature = nextSignature; resumeNativeCardUpdates(); return;
             }
@@ -701,17 +702,15 @@ public final class CoverService extends AccessibilityService implements DisplayM
         launcherFrameRotation = rotation;
         return DockGeometry.widgetContent(placement, panelEntryPlacement, statusBox, size.x, size.y, cutouts, density).intersect(systemSafe);
     }
-    private boolean retainTaskSession(Display selected, Point size, int rotation, float density) {
-        return hub != null && (hub.showingTasks() || hub == openingTaskHub) && hub.isAttachedToWindow()
-            && display != null && display.getDisplayId() == selected.getDisplayId()
-            && panelFrame != null && panelFrame.width() == size.x && panelFrame.height() == size.y
-            && launcherFrameRotation == rotation && screenContext != null
-            && Float.compare(screenContext.getResources().getDisplayMetrics().density, density) == 0
-            && java.util.Objects.equals(display.getCutout(), selected.getCutout());
+    private boolean retainHubSession(String nextDisplaySignature) {
+        // Compare with the mounted snapshot, not Display/Resources objects that can
+        // already reflect a new density or cutout when the callback arrives.
+        return nextDisplaySignature.equals(displaySignature) && screenContext != null
+            && hub != null && (hub.expanded() || hub.showingTasks() || hub == openingTaskHub) && hub.isAttachedToWindow();
     }
-    private void resumeTaskInsets() {
-        if (!taskInsetsDeferred) return;
-        taskInsetsDeferred = false; scheduleDisplay();
+    private void resumeHubInsets() {
+        if (!hubInsetsDeferred) return;
+        hubInsetsDeferred = false; scheduleDisplay();
     }
     private void addDock(boolean firstPresentation) {
         boolean compact = dockCompact();
@@ -1467,6 +1466,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 WindowManager.LayoutParams layout = hubParameters(expanded);
                 if (!expanded) screenContext.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(hub.getWindowToken(), 0);
                 try { windows.updateViewLayout(hubHost, layout); } catch (RuntimeException e) { removeHubImmediately(); }
+                if (!expanded && hub != null && !hub.showingTasks() && hub != openingTaskHub) resumeHubInsets();
             }
         });
         owner[0] = hub;
@@ -1686,7 +1686,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (outgoing.card() != null) outgoing.card().release();
         else { if (outgoing.glass() != null) { lastTaskGlassDiagnostics = outgoing.glass().diagnostics(); outgoing.glass().close(); } outgoing.view().dispose(); }
         clearHubHost(outgoing.host());
-        if (outgoing.tasks() != null) resumeTaskInsets();
+        resumeHubInsets();
         syncCardStatus();
     }
     private void removeHubImmediately() {
@@ -1694,12 +1694,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (hubCard == null) closeTaskGlass(); else taskGlass = null; taskSurface = null;
         if (Build.VERSION.SDK_INT >= 31 && hubBlurListener != null && hubBlurWindows != null) try { hubBlurWindows.removeCrossWindowBlurEnabledListener(hubBlurListener); } catch (RuntimeException ignored) { }
         hubBlurListener = null; hubBlurWindows = null;
-        boolean removedTasks = hub != null && hub.showingTasks();
         AppHubView removed = hub; FrameLayout host = hubHost; InterfaceCard card = hubCard; hub = null; hubHost = null; hubCard = null;
         if (openingTaskHub == removed) openingTaskHub = null;
         if (removed != null) { screenContext.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(removed.getWindowToken(), 0); if (card != null) card.release(); else removed.dispose(); }
         if (host != null) clearHubHost(host);
-        if (removedTasks) resumeTaskInsets();
+        if (removed != null) resumeHubInsets();
         syncHubEntry();
         syncCardStatus();
     }

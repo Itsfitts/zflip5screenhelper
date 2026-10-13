@@ -128,6 +128,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("launcher-force")) { result.putString("result", new LauncherForceChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("launcher-polish")) { result.putString("result", new LauncherPolishChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("hub-window")) { result.putString("result", new HubWindowChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("hub-search-insets")) { result.putString("result", new HubSearchChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("recent-tasks")) { if (expectedRotation >= 0) require(getUiAutomation().setRotation(expectedRotation), "task page rotation request accepted"); result.putString("result", new RecentTasksChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("readability")) { if (expectedRotation >= 0) require(getUiAutomation().setRotation(expectedRotation), "readability rotation request accepted"); result.putString("result", new ReadabilityChecks(this, expectedRotation).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("motion-continuity")) { result.putString("result", new MotionContinuityChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
@@ -135,6 +136,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("brightness-flow")) { result.putString("result", BrightnessChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("chrome-shadow")) { result.putString("result", ChromeShadowChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("status-safe-area")) { result.putString("result", StatusSafeAreaChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("status-vpn")) { result.putString("result", StatusVpnChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-settings")) { result.putString("result", "PASS: panel settings; " + PanelSettingsChecks.run(getTargetContext()) + " assertions"); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("panel-layout")) { result.putString("result", PanelLayoutChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("location")) { checkLocation(); result.putString("result", "PASS: location catalog, configuration, observer and rendered controls; " + assertions + " assertions; no privileged toggle"); finish(Activity.RESULT_OK, result); return; }

@@ -47,8 +47,12 @@ public final class Ui {
         LinearLayout group = column(context); group.setBackground(background(context, SURFACE, 16)); group.setClipToOutline(true); return group;
     }
     public static TextView text(Context context, String value, int size, int color) {
-        TextView view = new TextView(context); view.setText(value); view.setTextSize(size); view.setTextColor(color);
+        TextView view = new TextView(context); view.setText(value); textSize(view, size); view.setTextColor(color);
         view.setFontFeatureSettings("kern"); view.setIncludeFontPadding(false); view.setLineSpacing(0, 1); return view;
+    }
+    /** Only control contexts opt out of SP; all other surfaces retain their existing sizing. */
+    static void textSize(TextView view, float size) {
+        view.setTextSize(PanelUi.fixedText(view.getContext()) ? android.util.TypedValue.COMPLEX_UNIT_DIP : android.util.TypedValue.COMPLEX_UNIT_SP, size);
     }
     public static TextView heading(Context context, String value, int size) {
         TextView text = text(context, value, size, TEXT); text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return text;
@@ -58,7 +62,7 @@ public final class Ui {
         title.setPadding(dp(parent.getContext(), 4), dp(parent.getContext(), 8), 0, dp(parent.getContext(), 2)); add(parent, title);
     }
     public static Button button(Context context, String label, Runnable action) {
-        Button button = new Button(context); button.setText(label); button.setTextSize(13); button.setAllCaps(false);
+        Button button = new Button(context); button.setText(label); textSize(button, 13); button.setAllCaps(false);
         button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         button.setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled}, new int[]{}}, new int[]{MUTED, TEXT}));
         button.setMinWidth(0); button.setMinimumWidth(0); button.setMinHeight(dp(context, 40)); button.setMinimumHeight(dp(context, 40));

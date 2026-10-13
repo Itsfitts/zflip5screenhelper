@@ -40,7 +40,7 @@ final class MediaDetailView extends LinearLayout {
         timeline.addView(progress, new LayoutParams(-1, Ui.dp(getContext(), 24)));
         LinearLayout times = Ui.row(getContext()); time = Ui.text(getContext(), "", 8, Ui.MUTED); time.setTag("media-time"); time.setSingleLine(); duration = Ui.text(getContext(), "", 8, Ui.MUTED); duration.setTag("media-duration"); duration.setGravity(Gravity.RIGHT); duration.setSingleLine();
         times.addView(time, new LayoutParams(0, -2, 1)); times.addView(duration, new LayoutParams(0, -2, 1)); timeline.addView(times, new LayoutParams(-1, -2)); card.beforeTransport(timeline);
-        permission = Ui.button(getContext(), "允许通知使用权", () -> owner.openSettings("permissions")); permission.setTextSize(10); permission.setMinHeight(Ui.dp(getContext(), 30)); permission.setMinimumHeight(Ui.dp(getContext(), 30)); addView(permission, new LayoutParams(-1, -2));
+        permission = Ui.button(getContext(), "允许通知使用权", () -> owner.openSettings("permissions")); Ui.textSize(permission, 10); permission.setMinHeight(Ui.dp(getContext(), 30)); permission.setMinimumHeight(Ui.dp(getContext(), 30)); addView(permission, new LayoutParams(-1, -2));
         players = Ui.column(getContext()); players.setTag("media-players"); addView(players, new LayoutParams(-1, -2));
         progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onStartTrackingTouch(SeekBar slider) { dragging = true; dragPlayer = sessions.controller() == null ? null : sessions.controller().getSessionToken(); dragDuration = sessions.info().duration(); }
@@ -63,7 +63,7 @@ final class MediaDetailView extends LinearLayout {
         progress.setEnabled(info.duration() > 0 && info.supports(PlaybackState.ACTION_SEEK_TO)); progress.setVisibility(info.duration() > 0 ? VISIBLE : GONE);
         List<MediaController> list = sessions.players(); playerPicker.setVisibility(list.size() > 1 ? VISIBLE : GONE); playerPicker.setSelected(playersExpanded); playerPicker.setStateDescription(playersExpanded ? "收起播放器列表" : "展开播放器列表");
         players.removeAllViews(); players.setVisibility(playersExpanded && list.size() > 1 ? VISIBLE : GONE);
-        if (list.size() > 1) for (MediaController controller : list) { Button choice = Ui.button(getContext(), sessions.playerName(controller), () -> { playersExpanded = false; sessions.select(controller.getSessionToken()); }); choice.setTextSize(10); choice.setTag("media-player-choice"); Ui.select(choice, controller == sessions.controller()); players.addView(choice, new LayoutParams(-1, -2)); }
+        if (list.size() > 1) for (MediaController controller : list) { Button choice = Ui.button(getContext(), sessions.playerName(controller), () -> { playersExpanded = false; sessions.select(controller.getSessionToken()); }); Ui.textSize(choice, 10); choice.setTag("media-player-choice"); Ui.select(choice, controller == sessions.controller()); players.addView(choice, new LayoutParams(-1, -2)); }
         removeCallbacks(tick); updateTime(); if (attached && info.playing()) postDelayed(tick, 1000);
     }
     private void updateTime() {

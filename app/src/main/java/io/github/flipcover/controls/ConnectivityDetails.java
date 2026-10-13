@@ -145,7 +145,7 @@ final class ConnectivityDetails implements AutoCloseable {
         sheet.footer("返回", this::back);
     }
     private EditText input(String text, boolean secret) {
-        EditText input = new EditText(context); input.setSingleLine(true); input.setTextSize(PanelUi.BODY); input.setTextColor(Ui.TEXT); input.setHintTextColor(Ui.MUTED);
+        EditText input = new EditText(context); input.setSingleLine(true); Ui.textSize(input, PanelUi.BODY); input.setTextColor(Ui.TEXT); input.setHintTextColor(Ui.MUTED);
         input.setInputType(secret ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS); input.setText(text); sheet.content.addView(input, new LinearLayout.LayoutParams(-1, -2)); return input;
     }
