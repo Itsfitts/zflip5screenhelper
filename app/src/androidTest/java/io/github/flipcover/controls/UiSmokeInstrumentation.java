@@ -38,6 +38,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
         try {
             if (!android.os.Build.HARDWARE.equals("ranchu") && !android.os.Build.HARDWARE.equals("goldfish")) throw new IllegalStateException("Run only on a disposable Android emulator");
             if (scenario.equals("window-query")) { result.putString("result", new WindowQueryChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("full-window-insets")) { result.putString("result", new FullWindowInsetsChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("app-launch-reuse")) { result.putString("result", new AppLaunchChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("lock-wake")) { result.putString("result", new LockWakeChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("rotation-lifecycle")) { result.putString("result", new RotationLifecycleChecks(this).run()); finish(Activity.RESULT_OK, result); return; }

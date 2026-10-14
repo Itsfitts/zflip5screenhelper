@@ -77,6 +77,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private String entryGeometryInputs = "尚未计算", computedEntryGeometryInputs = "尚未计算", lastEntryGeometry = "", entryWindowMetrics = "未读取";
     private final java.util.ArrayDeque<String> entryGeometryHistory = new java.util.ArrayDeque<>();
     private android.view.ViewTreeObserver.OnPreDrawListener entryGeometryCapture;
+    private final CoverWindowInsets coverWindowInsets = new CoverWindowInsets();
     private DockGeometry.Placement dockPlacement;
     private final DockVisibility dockVisibility = new DockVisibility();
     private final StatusAppVisibility statusVisibility = new StatusAppVisibility();
@@ -572,12 +573,15 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 android.view.WindowMetrics maximum = metrics.getMaximumWindowMetrics(); displayInsets = maximum.getWindowInsets();
                 entryWindowMetrics = "bounds=" + maximum.getBounds() + ", navigationVisible=" + displayInsets.isVisible(android.view.WindowInsets.Type.navigationBars()) + ", cutout=" + displayInsets.getDisplayCutout();
             } catch (RuntimeException error) { entryWindowMetrics = "读取失败：" + error.getClass().getSimpleName(); }
+            String maximumInsets = displayInsets == null ? "不可用" : "mandatory=" + displayInsets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures()) + ", navigation=" + displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
+            displayInsets = coverWindowInsets.resolve(windowGeometry(selected, size, density), displayInsets);
+            entryWindowMetrics += ", 原始边衬=" + maximumInsets + "\n" + coverWindowInsets.diagnostics();
             android.graphics.Insets mandatory = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures());
             android.graphics.Insets navigation = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets navigationBounds = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets systemInsets = contentInsets(displayInsets, selected.getCutout());
             String nextDisplaySignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + selected.getCutout();
-            String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets;
+            String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets + ":" + coverWindowInsets.source();
             if (!force && nextSignature.equals(signature) && dock != null && dock.isAttachedToWindow() && panelEntry != null && panelEntry.isAttachedToWindow()) { syncDockVisibility(); resumeNativeCardUpdates(); return; }
             // IME and foreground changes can alter navigation insets on the same display.
             // Retain the expanded launcher/search or task session until it closes; the
@@ -1157,8 +1161,26 @@ public final class CoverService extends AccessibilityService implements DisplayM
             }
         });
         configureInput(host, () -> act("back")); host.setHapticFeedbackEnabled(prefs.haptics()); panelHost = host; panelHost.setClipChildren(true); panelHost.setVisibility(View.INVISIBLE);
+        observePanelInsets(host);
         WindowManager.LayoutParams layout = parameters(panelFrame); layout.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         windows.addView(panelHost, layout);
+    }
+    private static CoverWindowInsets.Geometry windowGeometry(Display target, Point size, float density) {
+        return new CoverWindowInsets.Geometry(target.getDisplayId(), target.getRotation(), size.x, size.y, density, String.valueOf(target.getCutout()));
+    }
+    private void observePanelInsets(View host) {
+        CoverWindowInsets.Geometry mounted = windowGeometry(display, Displays.size(display), screenContext.getResources().getDisplayMetrics().density);
+        host.setOnApplyWindowInsetsListener((view, insets) -> { acceptPanelInsets(view, mounted, insets); return view.onApplyWindowInsets(insets); });
+        host.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> acceptPanelInsets(view, mounted, view.getRootWindowInsets()));
+    }
+    private void acceptPanelInsets(View host, CoverWindowInsets.Geometry mounted, android.view.WindowInsets insets) {
+        if (instance != this || host != panelHost || !host.isAttachedToWindow() || host.getWidth() <= 0 || host.getHeight() <= 0 || prefs == null || !prefs.enabled()) return;
+        Display selected = Displays.selected(this, prefs);
+        if (selected == null || selected.getDisplayId() == Display.DEFAULT_DISPLAY || selected.getState() != Display.STATE_ON || getSystemService(KeyguardManager.class).isKeyguardLocked()) return;
+        Point size = Displays.size(selected); float density = createDisplayContext(selected).getResources().getDisplayMetrics().density;
+        int[] origin = new int[2]; host.getLocationOnScreen(origin);
+        DockGeometry.Box frame = new DockGeometry.Box(origin[0], origin[1], host.getWidth(), host.getHeight());
+        if (coverWindowInsets.observe(mounted, windowGeometry(selected, size, density), host.getDisplay() == null ? -1 : host.getDisplay().getDisplayId(), host.getResources().getDisplayMetrics().density, frame, insets)) scheduleDisplay();
     }
     void closePanel() { closePanel(false); }
     private void closePanel(boolean preserveOutgoing) {
@@ -1824,6 +1846,9 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private void removeWindows(boolean keepNativeGeometry) {
         if (panelEntry != null) rememberEntryGeometry("卸载前");
         cancelEntryGeometryCapture();
+        // Keep a validated sample through same-geometry remounts, otherwise max/actual
+        // differences would repeatedly recreate an open panel. resolve rejects new geometry.
+        if (!keepNativeGeometry) coverWindowInsets.reset();
         locationGeneration++;
         if (!keepNativeGeometry) invalidateForegroundQuery();
         removeDockHandle(false); dockHandleBox = null; dockHandlePositions = null;
@@ -1883,7 +1908,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         entryGeometryHistory.addLast(android.text.format.DateFormat.format("MM-dd HH:mm:ss", new java.util.Date()) + " · " + android.os.SystemClock.elapsedRealtime() + "ms · " + reason + "\n" + snapshot);
     }
     String entryGeometryDiagnostics() {
-        return "\n白条几何诊断（显示器像素；rotation 0/1/2/3=0°/90°/180°/270°；边衬按左上右下）\n启动器会话延后边衬更新=" + hubInsetsDeferred + "\n当前：\n" + entryGeometrySnapshot()
+        return "\n白条几何诊断（显示器像素；rotation 0/1/2/3=0°/90°/180°/270°；边衬按左上右下）\n启动器会话延后边衬更新=" + hubInsetsDeferred + "\n最新采样：" + coverWindowInsets.diagnostics() + "\n当前：\n" + entryGeometrySnapshot()
             + "\n最近位置变化（布局完成／卸载前采样，最多12条，仅本次服务内存，旧到新）：\n" + (entryGeometryHistory.isEmpty() ? "暂无布局记录" : String.join("\n---\n", entryGeometryHistory)) + "\n";
     }
     private static void setStatus(String value) {
