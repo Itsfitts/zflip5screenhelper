@@ -35,6 +35,9 @@ class InputSurface extends FrameLayout {
     private long padDown;
     private long downTime;
     private boolean nativeCard;
+    private DockGeometry.Box explicitContent;
+    DockGeometry.Box explicitContent() { return explicitContent; }
+    void contentBounds(DockGeometry.Box bounds) { if (java.util.Objects.equals(explicitContent, bounds)) return; explicitContent = bounds; cancelInput(); requestLayout(); invalidate(); }
     private boolean keyboardNavigation;
     private boolean moreSelected, cancelPressed, cancelLong, confirmPressed, shortcutPressed;
     private String pressedKey;
@@ -44,6 +47,13 @@ class InputSurface extends FrameLayout {
     private InputNavigation.Memory memory = new InputNavigation.Memory();
     private ViewGroup componentScope;
     private DetailSheet shortcuts;
+    private DetailSheet menuSheet;
+    private View menuAnchor;
+    private boolean menuRestoreFocus;
+    private final OnAttachStateChangeListener menuAnchorState = new OnAttachStateChangeListener() {
+        public void onViewAttachedToWindow(View view) { }
+        public void onViewDetachedFromWindow(View view) { DetailSheet current = menuSheet; post(() -> { if (menuSheet == current && !view.isAttachedToWindow()) closeMenu(); }); }
+    };
     private boolean shortcutEditing;
     private View shortcutTextFocus;
     private java.util.function.Consumer<String> shortcutAction = this::defaultShortcut;
@@ -59,7 +69,7 @@ class InputSurface extends FrameLayout {
     void navigation(Runnable back, Runnable focusWindow) { this.back = back; this.focusWindow = focusWindow; }
     void released(Runnable callback) { released = callback; }
     void memory(InputNavigation.Memory value, String page) { memory = value; pageKey = page; }
-    void page(String value) { if (!pageKey.equals(value)) { remember(); pageKey = value; target = null; selected = null; componentScope = null; scopeKey = ""; editing = moreSelected = false; } }
+    void page(String value) { if (!pageKey.equals(value)) { closeMenu(); remember(); pageKey = value; target = null; selected = null; componentScope = null; scopeKey = ""; editing = moreSelected = false; } }
     void shortcuts(java.util.function.Consumer<String> callback) { shortcutAction = callback; }
     void passive() { passive = true; }
     void keyboardFocus() { if (!passive && !nativeCard && devices.keyboardAvailable() && isShown() && getChildCount() > 0 && !hasWindowFocus()) { focusWindow.run(); requestFocus(); } }
@@ -72,7 +82,7 @@ class InputSurface extends FrameLayout {
         if (!devices.needsCapture() && hasPointerCapture()) release();
         keyboardFocus(); initializeNavigation();
     }
-    void release() { remember(); cancelInput(); if (shortcuts != null) closeShortcuts(); editing = false; if (hasPointerCapture()) releasePointerCapture(); devices.capture(this, false); selected = null; target = null; direction = false; keyboardNavigation = false; invalidate(); }
+    void release() { closeMenu(); remember(); cancelInput(); if (shortcuts != null) closeShortcuts(); editing = false; if (hasPointerCapture()) releasePointerCapture(); devices.capture(this, false); selected = null; target = null; direction = false; keyboardNavigation = false; invalidate(); }
     private void cancelInput() {
         removeCallbacks(captureTimeout); removeCallbacks(longCancel); cancelPressed = cancelLong = confirmPressed = shortcutPressed = false;
         if (pointerDown) localTouch(MotionEvent.ACTION_CANCEL);
@@ -249,11 +259,13 @@ class InputSurface extends FrameLayout {
     private Rect bounds(View view) { if (InputNavigation.parent(view, SettingsUi.Viewport.class) != null) return SettingsUi.Viewport.bounds(view, null, this); int[] p = new int[2], o = new int[2]; SafeAreaManager.screenLocation(view, p); SafeAreaManager.screenLocation(this, o); return new Rect(p[0] - o[0], p[1] - o[1], p[0] - o[0] + view.getWidth(), p[1] - o[1] + view.getHeight()); }
     private void activate(View view) {
         ensureSelected(); if (target == null || target.view != view) return; remember();
+        Rect visible = target.bounds(this); DockGeometry.Box safe = SafeAreaManager.viewContent(this);
+        if (!visible.intersect(safe.x(), safe.y(), safe.right(), safe.bottom())) { view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true); return; }
         if (moreSelected) { moreSelected = false; remember(); if (target.more != null) target.more.run(); post(this::initializeNavigation); return; }
         if (target.region == InputNavigation.Region.WIDGET && view instanceof ViewGroup group) { componentScope = group; scopeKey = ""; ensureSelected(); invalidate(); return; }
         if (view instanceof android.widget.AbsSeekBar || view instanceof LevelSlider || view instanceof EditText || view instanceof OriginalLiquidTabs) { editing = !editing; if (editing) { view.requestFocus(); if (view instanceof EditText) view.performClick(); } else requestFocus(); invalidate(); return; }
         if (target.primary != null) target.primary.run();
-        else if (!view.performClick()) { Rect box = target.bounds(this); float x = pointerX, y = pointerY; pointerX = box.exactCenterX(); pointerY = box.exactCenterY(); downTime = SystemClock.uptimeMillis(); localTouch(MotionEvent.ACTION_DOWN); localTouch(MotionEvent.ACTION_UP); pointerX = x; pointerY = y; }
+        else if (!view.performClick()) { float x = pointerX, y = pointerY; pointerX = visible.exactCenterX(); pointerY = visible.exactCenterY(); downTime = SystemClock.uptimeMillis(); localTouch(MotionEvent.ACTION_DOWN); localTouch(MotionEvent.ACTION_UP); pointerX = x; pointerY = y; }
         post(this::initializeNavigation);
     }
     private void scroll(int direction) { move(direction); }
@@ -297,21 +309,29 @@ class InputSurface extends FrameLayout {
         if (editing && shortcutTextFocus != null && shortcutTextFocus.isAttachedToWindow()) shortcutTextFocus.requestFocus(); shortcutTextFocus = null; invalidate();
     }
     void menu(InputPopupMenu menu, View anchor) {
-        menu(menu.getMenu(), anchor);
+        menu(menu.getMenu(), anchor, !hasWindowFocus());
     }
     boolean navigating() { return hasPointerCapture() || keyboardNavigation; }
-    private void menu(android.view.Menu menu, View anchor) {
-        final DetailSheet[] owner = new DetailSheet[1]; DetailSheet sheet = new DetailSheet(getContext(), "操作", () -> { removeView(owner[0]); selected = anchor.isAttachedToWindow() ? anchor : null; }); owner[0] = sheet;
-        for (int i = 0; i < menu.size(); i++) { android.view.MenuItem item = menu.getItem(i); if (!item.isVisible()) continue; View row = Ui.button(getContext(), (item.isChecked() ? "✓ " : "") + item.getTitle(), () -> { removeView(sheet); selected = anchor; if (!anchor.isAttachedToWindow()) return; if (item.hasSubMenu()) menu(item.getSubMenu(), anchor); else menu.performIdentifierAction(item.getItemId(), 0); }); row.setEnabled(item.isEnabled()); sheet.content.addView(row); }
-        addView(sheet, new LayoutParams(-1, -1)); selected = null; sheet.enter(null);
+    private void menu(android.view.Menu menu, View anchor, boolean restoreFocus) {
+        closeMenu();
+        final DetailSheet[] owner = new DetailSheet[1]; DetailSheet sheet = new DetailSheet(getContext(), "操作", () -> closeMenu(owner[0], anchor, restoreFocus)); owner[0] = sheet;
+        menuSheet = sheet; menuAnchor = anchor; menuRestoreFocus = restoreFocus; anchor.addOnAttachStateChangeListener(menuAnchorState);
+        sheet.handleWindowBack();
+        for (int i = 0; i < menu.size(); i++) { android.view.MenuItem item = menu.getItem(i); if (!item.isVisible()) continue; View row = Ui.button(getContext(), (item.isChecked() ? "✓ " : "") + item.getTitle(), () -> { boolean submenu = item.hasSubMenu() && anchor.isAttachedToWindow(); closeMenu(sheet, anchor, restoreFocus && !submenu); if (!anchor.isAttachedToWindow()) return; if (submenu) menu(item.getSubMenu(), anchor, restoreFocus); else menu.performIdentifierAction(item.getItemId(), 0); }); row.setEnabled(item.isEnabled()); sheet.content.addView(row); }
+        addView(sheet, new LayoutParams(-1, -1)); selected = null; focusWindow.run(); sheet.enter(anchor);
     }
-    private void localTouch(int action) { MotionEvent event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, pointerX, pointerY, 0); event.setSource(InputDevice.SOURCE_TOUCHSCREEN); replaying = true; try { super.dispatchTouchEvent(event); } finally { replaying = false; event.recycle(); } }
+    private void closeMenu() { if (menuSheet != null) closeMenu(menuSheet, menuAnchor, menuRestoreFocus); }
+    private void closeMenu(DetailSheet sheet, View anchor, boolean restoreFocus) { if (menuSheet != sheet) return; menuSheet = null; menuAnchor = null; anchor.removeOnAttachStateChangeListener(menuAnchorState); removeView(sheet); selected = anchor.isAttachedToWindow() ? anchor : null; if (restoreFocus && modal(this) == this && !hasPointerCapture() && !devices.keyboardAvailable()) released.run(); }
+    private void localTouch(int action) { if (action == MotionEvent.ACTION_DOWN && !SafeAreaManager.contains(SafeAreaManager.viewContent(this), pointerX, pointerY)) { pointerDown = false; return; } MotionEvent event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, pointerX, pointerY, 0); event.setSource(InputDevice.SOURCE_TOUCHSCREEN); replaying = true; try { super.dispatchTouchEvent(event); } finally { replaying = false; event.recycle(); } }
     @Override protected void dispatchDraw(Canvas canvas) {
         super.dispatchDraw(canvas); if (!hasPointerCapture() && !keyboardNavigation) return;
+        DockGeometry.Box safe = SafeAreaManager.viewContent(this); int checkpoint = canvas.save(); canvas.clipRect(safe.x(), safe.y(), safe.right(), safe.bottom());
+        try {
         paint.setStrokeWidth(Ui.dp(getContext(), 2));
         if (direction) { if (selected == null || !selected.isAttachedToWindow()) return; Rect box = target == null ? bounds(selected) : target.bounds(this); Rect visible = new Rect(); if (!selected.getGlobalVisibleRect(visible)) return; int[] origin = new int[2]; SafeAreaManager.screenLocation(this, origin); visible.offset(-origin[0], -origin[1]); if (!box.intersect(visible)) return; paint.setStyle(Paint.Style.STROKE); paint.setColor(editing ? 0xFFFFD77A : 0xFF80AAFF); if (!moreSelected) canvas.drawRoundRect(box.left + 2, box.top + 2, box.right - 2, box.bottom - 2, Ui.dp(getContext(), 8), Ui.dp(getContext(), 8), paint);
             if (target != null && target.more != null) { float size = Ui.dp(getContext(), 24), right = Math.min(getWidth() - 3, box.right - 2), top = Math.max(2, box.top + 2); paint.setStyle(Paint.Style.FILL); paint.setColor(moreSelected ? 0xFF80AAFF : 0xE6222933); canvas.drawRoundRect(right - size, top, right, top + size, size / 2, size / 2, paint); paint.setColor(moreSelected ? 0xFF102030 : 0xFFFFFFFF); paint.setTextSize(Ui.dp(getContext(), 18)); paint.setTextAlign(Paint.Align.CENTER); canvas.drawText("⋯", right - size / 2, top + size * .72f, paint); }
         }
         else { float size = Ui.dp(getContext(), 16); Path path = new Path(); path.moveTo(pointerX, pointerY); path.lineTo(pointerX + size * .25f, pointerY + size); path.lineTo(pointerX + size * .55f, pointerY + size * .6f); path.lineTo(pointerX + size, pointerY + size * .5f); path.close(); paint.setStyle(Paint.Style.FILL); paint.setColor(0xFFFFFFFF); canvas.drawPath(path, paint); paint.setStyle(Paint.Style.STROKE); paint.setColor(0xFF152333); canvas.drawPath(path, paint); }
+        } finally { canvas.restoreToCount(checkpoint); }
     }
 }

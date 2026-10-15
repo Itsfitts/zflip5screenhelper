@@ -36,7 +36,6 @@ final class NativeCardInput {
         DockGeometry.Box bounds = service.nativeHostBounds(service.display);
         if (bounds == null) bounds = new DockGeometry.Box(0, 0, size.x, size.y);
         if (card != id || this.launcher != launcher || !bounds.equals(hostBounds)) close();
-        if (rendered == views && surface != null) return;
         try {
             if (surface == null) {
                 card = id; this.launcher = launcher; surface = new InputSurface(service.screenContext);
@@ -50,6 +49,10 @@ final class NativeCardInput {
                 params.x = bounds.x(); params.y = bounds.y(); params.gravity = android.view.Gravity.TOP | android.view.Gravity.LEFT; params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
                 params.setFitInsetsTypes(0); params.setTitle("外屏卡片输入"); windows = service.screenContext.getSystemService(WindowManager.class); windows.addView(surface, params);
             }
+            WidgetSafeArea.Frame safe = launcher ? CoverApp.widgets(service).launcherFrame(id, true) : CoverApp.widgets(service).frame(id);
+            float density = service.screenContext.getResources().getDisplayMetrics().density;
+            surface.contentBounds(new DockGeometry.Box(Math.round(safe.left() * density), Math.round(safe.top() * density), Math.round(safe.width() * density), Math.round(safe.height() * density)));
+            if (rendered == views) return;
             if (content == null) {
                 content = new AppWidgetHostView(service.screenContext); content.setAppWidget(id, AppWidgetManager.getInstance(service).getAppWidgetInfo(id));
                 content.setPadding(0, 0, 0, 0); content.setAlpha(0); surface.addView(content, new android.widget.FrameLayout.LayoutParams(-1, -1));

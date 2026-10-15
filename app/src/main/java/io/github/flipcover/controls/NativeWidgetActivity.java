@@ -81,9 +81,6 @@ public final class NativeWidgetActivity extends Activity {
         capturePosition(); renderedPage = page; pageScroll = null; body = null;
         if (picker != null) { picker.saveState(pickerState); picker = null; }
         root = SettingsUi.column(this); root.setBackgroundColor(SettingsUi.BACKGROUND);
-        SafeAreaManager.observe(root);
-        root.setOnApplyWindowInsetsListener((v, insets) -> { android.graphics.Insets safe = SafeAreaManager.activityInsets(this, v, insets); v.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
-        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != or - ol || b - t != ob - ot) v.requestApplyInsets(); });
         LinearLayout header = SettingsUi.row(this); header.setMinimumHeight(SettingsUi.dp(this, 40)); header.addView(NativeWidgetUi.iconButton(this, R.drawable.ic_ms_arrow_back, "返回", this::back));
         String title = outer <= 0 ? "组合卡片" : page.equals("picker") ? "添加小组件" : page.equals("place") ? "尺寸与位置" : "组合卡片" + bridge.slot(outer);
         android.widget.TextView heading = NativeWidgetUi.heading(this, title, 16); heading.setAccessibilityHeading(true); header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
@@ -92,6 +89,10 @@ public final class NativeWidgetActivity extends Activity {
             android.widget.Button done = NativeWidgetUi.button(this, "完成", this::done); done.setTag("widget-done"); done.setEnabled(!awaiting); header.addView(done);
         }
         root.addView(header); InputSurface inputRoot = new InputSurface(this); inputRoot.navigation(this::back, () -> { }); inputRoot.shortcuts(id -> { if ("back".equals(id)) back(); else if (outer > 0) android.widget.Toast.makeText(this, "请先完成或取消卡片编辑", android.widget.Toast.LENGTH_SHORT).show(); else { CoverService service = CoverService.instance; if (service != null && getDisplay() != null) service.inputShortcut(id, getDisplay().getDisplayId()); } }); inputRoot.addView(root, new android.widget.FrameLayout.LayoutParams(-1, -1)); setContentView(inputRoot);
+        SafeAreaManager.observe(inputRoot);
+        inputRoot.setOnApplyWindowInsetsListener((v, insets) -> { android.graphics.Insets safe = SafeAreaManager.activityInsets(this, v, insets); v.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
+        inputRoot.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != or - ol || b - t != ob - ot) v.requestApplyInsets(); });
+        inputRoot.requestApplyInsets();
         if (outer > 0 && ready() && page.equals("picker")) { picker = new WidgetPickerView(this, bridge, outer, List.copyOf(draft), pickerState, this::choose); root.addView(picker, new LinearLayout.LayoutParams(-1, 0, 1)); return; }
         ScrollView scroll = new ScrollView(this); pageScroll = scroll; scroll.setTag("widget-scroll"); body = SettingsUi.column(this); body.setPadding(SettingsUi.dp(this, 8), SettingsUi.dp(this, 2), SettingsUi.dp(this, 8), SettingsUi.dp(this, 8)); scroll.addView(body); root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1)); restoringScroll = true; if (positions.getBundle(page) != null) SettingsNavigator.restoreViews(scroll, body, positions.getBundle(page)); scroll.post(() -> { if (pageScroll == scroll) restoringScroll = false; });
         if (!notice.isEmpty()) addText(notice, SettingsUi.ACCENT);

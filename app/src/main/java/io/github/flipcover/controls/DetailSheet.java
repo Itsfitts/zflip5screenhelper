@@ -55,6 +55,15 @@ final class DetailSheet extends FrameLayout {
     private android.window.OnBackInvokedDispatcher backDispatcher;
     private android.window.OnBackInvokedCallback backCallback;
     private java.util.function.IntConsumer contentHeightListener;
+    /** Resolve in this View's coordinates, including scaled settings and already-inset parents. */
+    @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        if (getParent() instanceof View parent) {
+            DockGeometry.Box safe = SafeAreaManager.mapViewBounds(parent, SafeAreaManager.viewContent(parent), this).intersect(new DockGeometry.Box(0, 0, getWidth(), getHeight()));
+            int right = getWidth() - safe.right(), bottom = getHeight() - safe.bottom();
+            if (getPaddingLeft() != safe.x() || getPaddingTop() != safe.y() || getPaddingRight() != right || getPaddingBottom() != bottom) setPadding(safe.x(), safe.y(), right, bottom);
+        }
+        super.onLayout(changed, l, t, r, b);
+    }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         // A new gesture belongs to the underlying panel as soon as dismissal starts.
         // The gesture that invoked close already has its touch target and cannot click through.

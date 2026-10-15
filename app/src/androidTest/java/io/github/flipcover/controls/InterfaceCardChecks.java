@@ -71,6 +71,7 @@ final class InterfaceCardChecks {
         DockGeometry.Box safe = new DockGeometry.Box(0, Ui.dp(activity, 40), width, height - Ui.dp(activity, 76));
         DockGeometry.Box dockBox = new DockGeometry.Box(0, height - Ui.dp(activity, 36), width, Ui.dp(activity, 36));
         owner.placement = new DockGeometry.Placement(dockBox, dockBox, safe, edge, true);
+        owner.display = activity.getDisplay();
         field("windows", proxy); field("panelFrame", frame); field("hubFrame", safe); field("dockPlacement", owner.placement);
         field("panelEntryPlacement", new DockGeometry.Placement(dockBox, dockBox, safe, edge, true));
         field("controlStatusBox", new DockGeometry.Box(0, 0, width, Ui.dp(activity, 28)));
@@ -114,7 +115,7 @@ final class InterfaceCardChecks {
     private void checkDefinitions() {
         require(InterfaceCard.CONTROLS.material() == InterfaceCard.Material.FROSTED && InterfaceCard.CONTROLS.showStatusBar(), "controls default to frosted with top status");
         for (InterfaceCard.Definition definition : new InterfaceCard.Definition[]{InterfaceCard.NOTIFICATIONS, InterfaceCard.TASKS, InterfaceCard.LAUNCHER}) require(definition.material() == InterfaceCard.Material.TRANSPARENT && !definition.showStatusBar(), "other three cards default transparent without status");
-        for (InterfaceCard.Definition definition : new InterfaceCard.Definition[]{InterfaceCard.CONTROLS, InterfaceCard.NOTIFICATIONS, InterfaceCard.TASKS, InterfaceCard.LAUNCHER}) require(definition.useSafeArea() && !definition.useCardSafeArea(), "all existing pages retain large plates with safe content");
+        for (InterfaceCard.Definition definition : new InterfaceCard.Definition[]{InterfaceCard.CONTROLS, InterfaceCard.NOTIFICATIONS, InterfaceCard.TASKS, InterfaceCard.LAUNCHER}) require(definition.useSafeArea() && definition.useCardSafeArea(), "all existing pages use safe page paint and independently reserved content");
         FrameLayout body = new FrameLayout(activity); int[] cleanup = {0}, pause = {0};
         InterfaceCard card = new InterfaceCard(activity, prefs, new InterfaceCard.Definition("future-page", InterfaceCard.Material.TRANSPARENT, true), body, () -> pause[0]++, () -> cleanup[0]++);
         require(card.statusBar() != null && card.statusBar().showsPercentage(), "any registered card gets the shared forced-percentage row");
@@ -453,7 +454,7 @@ final class InterfaceCardChecks {
                 ValueAnimator initial = (ValueAnimator) field("sceneBootstrap"); require(initial != null && initial.getDuration() == 90, "shared short initial bridge is distinct from follow and settle"); initial.pause();
                 for (int time = 0; time <= 45; time += 5) { initial.setCurrentPlayTime(time); separation(source[0], active(), edge); }
                 android.graphics.RectF crop = new android.graphics.RectF(); source[0].visualBounds(crop);
-                require(Math.abs(source[0].getTranslationY()) < 110 + Ui.dp(activity, 6) && crop.bottom > ((DockGeometry.Box) field("hubFrame")).bottom() && crop.bottom < frame.height(), "source crops and separates progressively from large to safe without teleporting");
+                require(Math.abs(source[0].getTranslationY()) < 110 + Ui.dp(activity, 6) && crop.bottom == source[0].effectSafeArea().bottom(), "source keeps its page boundary while separating without teleporting");
                 require(Math.abs(active().getTranslationY()) < frame.height() && Math.abs(active().getTranslationY()) > frame.height() - 110, "incoming crosses unsafe gap continuously during initial bridge");
                 require(source[0].getChildAt(0).getHeight() == contentHeight[0], "initial crop never remeasures source content");
                 for (int time = 50; time <= 90; time += 5) { initial.setCurrentPlayTime(time); separation(source[0], active(), edge); } initial.end();
@@ -462,7 +463,7 @@ final class InterfaceCardChecks {
                 require(Math.abs(source[0].getTranslationY() - sourceResting - direction * 60) < 1 && Math.abs(active().getTranslationY() - resting - direction * 60) < 1, "after initial bridge both cards follow actual finger travel one to one"); separation(source[0], active(), edge);
                 call("releasePanel", new Class<?>[]{float.class, float.class, boolean.class}, 60f, 0f, true);
                 ValueAnimator reverse = (ValueAnimator) field("panelAnimation"); reverse.pause(); for (int time = 0; time < 340; time += 20) { reverse.setCurrentPlayTime(time); separation(source[0], active(), edge); } finish();
-                source[0].visualBounds(crop); require(active() == source[0] && source[0].getTranslationY() == 0 && crop.bottom == frame.height(), "cancellation restores the same large source plate and pose"); clear();
+                source[0].visualBounds(crop); require(active() == source[0] && source[0].getTranslationY() == 0 && crop.bottom == source[0].effectSafeArea().bottom(), "cancellation restores the same safe source plate and pose"); clear();
             });
         }
     }

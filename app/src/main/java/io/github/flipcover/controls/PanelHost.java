@@ -55,7 +55,7 @@ final class PanelHost extends InputSurface {
             if (following) end(true);
             reset(); blocked = false; source = swipe.currentPage(); direction = swipe.direction();
             startX = event.getRawX(); startY = event.getRawY();
-            candidate = source != null && direction != 0 && !horizontalOwner(this, event.getX(), event.getY());
+            candidate = source != null && direction != 0 && SafeAreaManager.contains(SafeAreaManager.viewContent(this), event.getX(), event.getY()) && !horizontalOwner(this, event.getX(), event.getY());
             if (candidate) { velocity = VelocityTracker.obtain(); velocity.addMovement(event); }
         }
         if (blocked) return true;

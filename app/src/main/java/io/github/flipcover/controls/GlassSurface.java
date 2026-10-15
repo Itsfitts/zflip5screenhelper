@@ -227,8 +227,8 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
             else { shader.setFloatUniform("selected",selected && (role == Role.BUTTON || role == Role.TILE || role == Role.PICKER) ? 1 : 0); shader.setFloatUniform("selectionColor",role == Role.PICKER ? .14f : .94f,role == Role.PICKER ? .23f : .95f,role == Role.PICKER ? .38f : .98f); }
             shader.setFloatUniform("pressed",pressed ? 1 : 0);
             shader.setFloatUniform("taskLens",role == Role.TASK_PREVIEW ? density : 0);
-            if (owner instanceof InterfaceCard card && card.safeArea() != null) {
-                DockGeometry.Box safe = card.safeArea(); shader.setFloatUniform("safeArea", safe.x() - box.left, safe.y() - box.top, safe.right() - box.left, safe.bottom() - box.top); shader.setFloatUniform("unsafeBand", 20 * density);
+            if (owner instanceof InterfaceCard card && card.effectSafeArea() != null) {
+                DockGeometry.Box safe = card.effectSafeArea(); shader.setFloatUniform("safeArea", safe.x() - box.left, safe.y() - box.top, safe.right() - box.left, safe.bottom() - box.top); shader.setFloatUniform("unsafeBand", 20 * density);
             } else { shader.setFloatUniform("safeArea", 0, 0, box.width(), box.height()); shader.setFloatUniform("unsafeBand", 0); }
             shader.setFloatUniform("readable",launcherPlate() || role == Role.FOLDER || role == Role.LAUNCHER_SEARCH || role == Role.TASK_ACTION || role == Role.CARD || role == Role.TEXT || role == Role.TILE || role == Role.EDITOR || role == Role.INPUT ? 1 : 0);
             boolean toggle=owner.getParent() instanceof GlassToggle; shader.setFloatUniform("toggle",toggle ? 1 : 0);

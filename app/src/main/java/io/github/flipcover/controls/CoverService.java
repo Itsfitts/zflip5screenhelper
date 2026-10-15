@@ -1275,8 +1275,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         dismissDetails();
         if (panelGlass != null) panelGlass.beginModal(panelCard == null ? panel : panelCard);
         DetailSheet sheet = new DetailSheet(panel.getContext(), ActionCatalog.label(panel.getContext(), id), this::dismissDetails); details = sheet;
-        DockGeometry.Box safe = panelCard == null ? placement.panel() : panelCard.localArea(placement.panel()); FrameLayout.LayoutParams position = new FrameLayout.LayoutParams(safe.width(), safe.height()); position.leftMargin = safe.x(); position.topMargin = safe.y();
-        host.addView(sheet, position); panel.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        host.addView(sheet, new FrameLayout.LayoutParams(-1, -1)); panel.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         setDetailBlur(true);
         if (windows != null && panelHost != null) { WindowManager.LayoutParams params = (WindowManager.LayoutParams) panelHost.getLayoutParams(); params.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE; windows.updateViewLayout(panelHost, params); }
         detailContent = new ControlDetails(this, sheet); detailContent.build(id); sheet.enter(source instanceof Panels.Tile tile ? tile.face : source, panelGlass);

@@ -48,16 +48,15 @@ final class AppWorkspaceTools {
         final DetailSheet[] ref = new DetailSheet[1];
         DetailSheet current = new DetailSheet(context, name, () -> { if (sheet != ref[0]) return; close(); if (back != null) back.run(); }); ref[0] = current; sheet = current;
         current.handleWindowBack();
-        current.launcherStyle(); sheetInsets(current, host); host.addView(current, new FrameLayout.LayoutParams(-1, -1));
+        current.launcherStyle(); host.addView(current, new FrameLayout.LayoutParams(-1, -1));
         hub.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS); current.enter(null); return current;
     }
     void resize() {
         if (external) { close(); return; }
         if (sheet == null || !(sheet.getParent() instanceof FrameLayout host)) return;
         if (members != null) members.cancel();
-        sheetInsets(sheet, host);
+        sheet.requestLayout();
     }
-    private void sheetInsets(DetailSheet current, FrameLayout host) { current.setPadding(Math.max(0, hub.getLeft() - host.getPaddingLeft()), Math.max(0, hub.getTop() - host.getPaddingTop()), Math.max(0, host.getWidth() - host.getPaddingRight() - hub.getRight()), Math.max(0, host.getHeight() - host.getPaddingBottom() - hub.getBottom())); }
     /** Context actions share the selected display's existing safe host, never an anchored subwindow. */
     Actions actions(String title, Runnable back) { return new Actions(show(title, back)); }
     final class Actions {

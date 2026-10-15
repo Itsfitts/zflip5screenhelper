@@ -117,8 +117,39 @@ final class SafeAreaManager {
             tasks = DockGeometry.centerVertically(hub, available);
         }
         DockGeometry.Placement result = new DockGeometry.Placement(chrome.visual(), chrome.touch(), content, chrome.edge(), chrome.measured());
-        return new Layout(result, entry, card, status, controlStatus, hub, available, tasks, DockGeometry.widgetContent(result, entry, status, width, height, cutouts, density).intersect(systemSafe));
+        return new Layout(result, entry, area.contentFrame(), status, controlStatus, hub, available, tasks, DockGeometry.widgetContent(result, entry, status, width, height, cutouts, density).intersect(systemSafe));
     }
+    /** The raw host stays fixed. Page paint and child interaction use distinct, nested rectangles. */
+    record Boundary(DockGeometry.Box window, DockGeometry.Box page, DockGeometry.Box content) {
+        Boundary { page = page.intersect(window); content = content.intersect(page); }
+        DockGeometry.Box localPage() { return local(page); }
+        DockGeometry.Box localContent() { return local(content); }
+        private DockGeometry.Box local(DockGeometry.Box area) { return SafeAreaGeometry.localFrame(area, 1, window.x(), window.y(), window.width(), window.height()); }
+    }
+    static DockGeometry.Box mapViewBounds(View source, DockGeometry.Box bounds, View target) {
+        if (source == target) return bounds;
+        android.graphics.RectF result = new android.graphics.RectF(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
+        android.graphics.Matrix from = new android.graphics.Matrix(), to = new android.graphics.Matrix(), inverse = new android.graphics.Matrix();
+        source.transformMatrixToGlobal(from); target.transformMatrixToGlobal(to);
+        if (!to.invert(inverse)) return new DockGeometry.Box(0, 0, 0, 0);
+        from.mapRect(result); inverse.mapRect(result);
+        int left = (int) Math.ceil(result.left), top = (int) Math.ceil(result.top);
+        return new DockGeometry.Box(left, top, Math.max(0, (int) Math.floor(result.right) - left), Math.max(0, (int) Math.floor(result.bottom) - top));
+    }
+    static DockGeometry.Box viewContent(View root) {
+        int w = root.getWidth() > 0 ? root.getWidth() : root.getMeasuredWidth(), h = root.getHeight() > 0 ? root.getHeight() : root.getMeasuredHeight();
+        DockGeometry.Box local = new DockGeometry.Box(root.getPaddingLeft(), root.getPaddingTop(), Math.max(0, w - root.getPaddingLeft() - root.getPaddingRight()), Math.max(0, h - root.getPaddingTop() - root.getPaddingBottom()));
+        for (View v = root; v != null; v = v.getParent() instanceof View parent ? parent : null) {
+            if (v instanceof InterfaceCard card && card.safeArea() != null) return local.intersect(mapViewBounds(card, card.safeArea(), root));
+            if (v instanceof InputSurface input && input.explicitContent() != null) return local.intersect(mapViewBounds(input, input.explicitContent(), root));
+        }
+        if (root instanceof android.view.ViewGroup group) for (int i = group.getChildCount() - 1; i >= 0; i--) {
+            View child = group.getChildAt(i);
+            if (child instanceof InterfaceCard card && card.acceptsInput() && card.safeArea() != null) return local.intersect(mapViewBounds(card, card.safeArea(), root));
+        }
+        return local;
+    }
+    static boolean contains(DockGeometry.Box area, float x, float y) { return x >= area.x() && y >= area.y() && x < area.right() && y < area.bottom(); }
     static DockGeometry.ClockHandle clockHandle(Snapshot area, DockGeometry.Placement dock, DockGeometry.Placement entry, DockGeometry.Box status, Insets insets) {
         int top = Math.max(insets.top, status == null ? 0 : status.bottom());
         DockGeometry.Box available = new DockGeometry.Box(insets.left, top, Math.max(0, area.width() - insets.left - insets.right), Math.max(0, area.height() - top - insets.bottom));

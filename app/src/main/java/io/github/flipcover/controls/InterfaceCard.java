@@ -19,12 +19,12 @@ import java.util.function.BooleanSupplier;
 final class InterfaceCard extends FrameLayout {
     enum Material { TRANSPARENT, FROSTED }
     record Definition(String id, Material material, boolean showStatusBar, boolean useSafeArea, boolean useCardSafeArea) {
-        Definition(String id, Material material, boolean showStatusBar) { this(id, material, showStatusBar, true, false); }
+        Definition(String id, Material material, boolean showStatusBar) { this(id, material, showStatusBar, true, true); }
     }
-    static final Definition CONTROLS = new Definition("controls", Material.FROSTED, true, true, false);
-    static final Definition NOTIFICATIONS = new Definition("notifications", Material.TRANSPARENT, false, true, false);
-    static final Definition TASKS = new Definition("tasks", Material.TRANSPARENT, false, true, false);
-    static final Definition LAUNCHER = new Definition("launcher", Material.TRANSPARENT, false, true, false);
+    static final Definition CONTROLS = new Definition("controls", Material.FROSTED, true, true, true);
+    static final Definition NOTIFICATIONS = new Definition("notifications", Material.TRANSPARENT, false, true, true);
+    static final Definition TASKS = new Definition("tasks", Material.TRANSPARENT, false, true, true);
+    static final Definition LAUNCHER = new Definition("launcher", Material.TRANSPARENT, false, true, true);
     static Definition panel(String page) { return page.equals("controls") ? CONTROLS : page.equals("notifications") ? NOTIFICATIONS : new Definition(page, Material.FROSTED, false); }
     static android.animation.ValueAnimator motion(float from, float to) {
         android.animation.ValueAnimator animation = android.animation.ValueAnimator.ofFloat(from, to);
@@ -100,7 +100,7 @@ final class InterfaceCard extends FrameLayout {
         float margin = safeCardArea.x() - viewport.x() + safeCardArea.y() - viewport.y() + viewport.right() - safeCardArea.right() + viewport.bottom() - safeCardArea.bottom();
         return margin <= 0 ? 0 : Math.max(0, Math.min(1, (visual.left + visual.top + viewport.width() - visual.right + viewport.height() - visual.bottom) / margin));
     }
-    void prepareEntry() { if (viewport == null) return; visual.set(0, 0, viewport.width(), viewport.height()); beginEntryCrop(); invalidateOutline(); invalidate(); }
+    void prepareEntry() { if (viewport == null) return; visual.set(cardArea.x() - viewport.x(), cardArea.y() - viewport.y(), cardArea.right() - viewport.x(), cardArea.bottom() - viewport.y()); beginEntryCrop(); invalidateOutline(); invalidate(); }
     void beginEntryCrop() { cropStart.set(visual); if (viewport != null) cropTarget.set(cardArea.x() - viewport.x(), cardArea.y() - viewport.y(), cardArea.right() - viewport.x(), cardArea.bottom() - viewport.y()); }
     void beginExitCrop() { cropStart.set(visual); if (viewport != null) cropTarget.set(safeCardArea.x() - viewport.x(), safeCardArea.y() - viewport.y(), safeCardArea.right() - viewport.x(), safeCardArea.bottom() - viewport.y()); }
     void beginRestoreCrop() { cropStart.set(visual); cropTarget.set(restingVisual); }
@@ -111,7 +111,9 @@ final class InterfaceCard extends FrameLayout {
         invalidateOutline(); invalidate();
     }
     DockGeometry.Box safeArea() { return localSafeArea; }
-    void contentSafeBounds(DockGeometry.Box safe) { if (cardArea != null) localSafeArea = localArea(safe); }
+    /** All page effects follow the visible page, never a smaller scroll or chrome reservation. */
+    DockGeometry.Box effectSafeArea() { return safeCardArea == null ? localSafeArea : localArea(safeCardArea); }
+    void contentSafeBounds(DockGeometry.Box safe) { if (cardArea != null) { localSafeArea = new SafeAreaManager.Boundary(viewport, cardArea, safe).localContent(); requestLayout(); invalidate(); } }
     DockGeometry.Box localArea(DockGeometry.Box bounds) {
         int left = Math.max(bounds.x(), cardArea.x()), top = Math.max(bounds.y(), cardArea.y());
         return new DockGeometry.Box(left - viewport.x(), top - viewport.y(), Math.max(1, Math.min(bounds.right(), cardArea.right()) - left), Math.max(1, Math.min(bounds.bottom(), cardArea.bottom()) - top));
@@ -138,12 +140,13 @@ final class InterfaceCard extends FrameLayout {
     }
     @Override protected boolean drawChild(android.graphics.Canvas canvas, View child, long drawingTime) {
         if (child != content || localSafeArea == null || !definition.useSafeArea()) return super.drawChild(canvas, child, drawingTime);
-        DockGeometry.Box safe = safeArea();
-        if (safe.bottom() >= getHeight()) return super.drawChild(canvas, child, drawingTime);
+        int clip = canvas.save(); canvas.clipRect(localSafeArea.x(), localSafeArea.y(), localSafeArea.right(), localSafeArea.bottom());
+        DockGeometry.Box safe = effectSafeArea();
+        if (safe.bottom() >= getHeight()) { boolean drawn = super.drawChild(canvas, child, drawingTime); canvas.restoreToCount(clip); return drawn; }
         int band = Ui.dp(getContext(), 16); int checkpoint = canvas.saveLayer(0, 0, getWidth(), getHeight(), null);
         boolean drawn = super.drawChild(canvas, child, drawingTime);
         if (maskBottom != safe.bottom()) { maskBottom = safe.bottom(); contentMask.setShader(new android.graphics.LinearGradient(0, maskBottom - band, 0, maskBottom, Color.BLACK, Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)); contentMask.setBlendMode(android.graphics.BlendMode.DST_IN); }
-        canvas.drawRect(0, 0, getWidth(), getHeight(), contentMask); canvas.restoreToCount(checkpoint); return drawn;
+        canvas.drawRect(0, 0, getWidth(), getHeight(), contentMask); canvas.restoreToCount(checkpoint); canvas.restoreToCount(clip); return drawn;
     }
     Material material() { return material; }
     PanelGlassSession glass() { return glass; }
@@ -180,8 +183,8 @@ final class InterfaceCard extends FrameLayout {
         if (blocked != null) { glassState = "blocked:" + blocked; ready.run(); return; }
         glassState = "preparing";
         glass = new PanelGlassSession(getContext(), display);
-        if (viewport != null && localSafeArea != null) {
-            Rect required = new Rect(viewport.x() + localSafeArea.x(), viewport.y() + localSafeArea.y(), viewport.x() + localSafeArea.right(), viewport.y() + localSafeArea.bottom());
+        if (viewport != null && cardArea != null) {
+            Rect required = new Rect(cardArea.x(), cardArea.y(), cardArea.right(), cardArea.bottom());
             if (status != null && statusArea != null) required.union(statusArea.x(), statusArea.y(), statusArea.right(), statusArea.bottom());
             glass.captureArea(required);
         }
@@ -195,7 +198,16 @@ final class InterfaceCard extends FrameLayout {
         if (Build.VERSION.SDK_INT >= 31) layout.setBlurBehindRadius(blur ? Math.min(100, Ui.dp(getContext(), 32)) : 0);
     }
     void interactive(boolean enabled) { interactive = enabled; setImportantForAccessibility(enabled ? IMPORTANT_FOR_ACCESSIBILITY_AUTO : IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS); }
-    @Override public boolean onInterceptTouchEvent(MotionEvent event) { return !interactive || super.onInterceptTouchEvent(event); }
+    boolean acceptsInput() { return interactive && !closed && getVisibility() == VISIBLE; }
+    private boolean outsideContent;
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            outsideContent = localSafeArea != null && !SafeAreaManager.contains(localSafeArea, event.getX(), event.getY());
+            if (effectSafeArea() != null && !SafeAreaManager.contains(effectSafeArea(), event.getX(), event.getY())) return false;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+    @Override public boolean onInterceptTouchEvent(MotionEvent event) { return !interactive || outsideContent || super.onInterceptTouchEvent(event); }
     @Override public boolean onTouchEvent(MotionEvent event) { return !interactive || super.onTouchEvent(event); }
     static boolean horizontal(int edge) { return edge == DockGeometry.LEFT || edge == DockGeometry.RIGHT; }
     static int sign(int edge) { return edge == DockGeometry.TOP || edge == DockGeometry.LEFT ? -1 : 1; }

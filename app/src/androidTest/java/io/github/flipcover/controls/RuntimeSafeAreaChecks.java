@@ -138,7 +138,9 @@ final class RuntimeSafeAreaChecks {
                 measure(card, width, height); View content = card.getChildAt(0);
                 inside(new DockGeometry.Box(content.getPaddingLeft(), content.getPaddingTop(), width - content.getPaddingLeft() - content.getPaddingRight(), height - content.getPaddingTop() - content.getPaddingBottom()), system);
                 if (card.statusBar() != null) inside(new DockGeometry.Box(card.statusBar().getLeft(), card.statusBar().getTop(), card.statusBar().getWidth(), card.statusBar().getHeight()), system);
-                RectF visual = new RectF(); card.visualBounds(visual); require(visual.equals(new RectF(0, 0, width, height)), "system edges do not shrink the glass backdrop");
+                RectF visual = new RectF(); card.visualBounds(visual); DockGeometry.Box pageBounds = box(owner, "cardSafeFrame");
+                require(visual.equals(new RectF(pageBounds.x(), pageBounds.y(), pageBounds.right(), pageBounds.bottom())), "visible page follows safety while its host remains full screen");
+                require(card.effectSafeArea().equals(pageBounds), "page effects do not follow the smaller content reservation");
                 if (hasCutout && showStatus && showNavigation) {
                     picture(card, page + "-" + rotation);
                     if (rotation == android.view.Surface.ROTATION_180) {
