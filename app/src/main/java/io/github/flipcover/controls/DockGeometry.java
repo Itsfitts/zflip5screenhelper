@@ -93,7 +93,7 @@ public final class DockGeometry {
             for (Box cut : cutouts) if (cut.bottom() >= height && cut.height() < height / 3) {
                 left = Math.max(safe.x() + margin, cut.x() + margin); right = Math.min(right, cut.right() - margin); bottom = Math.min(bottom, cut.y());
             }
-            if (cutouts.isEmpty() && anchor.edge() == BOTTOM) { left = Math.max(safe.x() + margin, anchor.visual().right() + margin); bottom = Math.min(bottom, anchor.visual().y()); }
+            if (cutouts.isEmpty() && anchor.edge() == BOTTOM && touch.width() > 0 && touch.height() > 0) { left = Math.max(safe.x() + margin, anchor.visual().right() + margin); bottom = Math.min(bottom, anchor.visual().y()); }
             top = Math.max(safe.y(), bottom - thickness);
         }
         if (bottom > touch.y() && top < touch.bottom() && left < touch.right() && right > touch.x()) {
@@ -178,6 +178,7 @@ public final class DockGeometry {
     /** Content ends at the physical notch/visible dock, not at an oversized touch target. */
     public static Box panelContent(Placement p, int width, int height, List<Box> cutouts) {
         Box physical = physicalContent(width, height, cutouts);
+        if (p.visual().width() == 0 || p.visual().height() == 0) return physical;
         int left = physical.x(), top = physical.y(), right = physical.right(), bottom = physical.bottom();
         Box v = p.visual();
         switch (p.edge()) { case TOP -> top = Math.max(top, v.bottom()); case LEFT -> left = Math.max(left, v.right()); case RIGHT -> right = Math.min(right, v.x()); default -> bottom = Math.min(bottom, v.y()); }
@@ -203,7 +204,10 @@ public final class DockGeometry {
     }
     /** Native cards sit behind the entry window; reserve its artwork, not the panel's gesture band. */
     public static Box widgetContent(Placement dock, Placement entry, Box status, int width, int height, List<Box> cutouts, float density) {
-        Box safe = panelContent(dock, width, height, cutouts); Chrome chrome = panelEntryChrome(entry, density);
+        return widgetContent(panelContent(dock, width, height, cutouts), entry, status, density);
+    }
+    static Box widgetContent(Box safe, Placement entry, Box status, float density) {
+        Chrome chrome = panelEntryChrome(entry, density);
         int top = safe.y(), bottom = safe.bottom();
         if (status != null) top = Math.max(top, status.bottom());
         if (entry.edge() == TOP) top = Math.max(top, entry.touch().y() + Math.max(chrome.firstHandle().bottom(), chrome.secondHandle().bottom()));
@@ -212,8 +216,10 @@ public final class DockGeometry {
     }
     /** Reclaim the entry band before applying all current system edges; preserve the existing upward shift. */
     public static Box hubContent(Placement placement, int width, int height, List<Box> cutouts, Box systemSafe) {
-        Box safe = panelContent(placement, width, height, cutouts);
-        int top = Math.max(safe.y(), placement.panel().y()), bottom = Math.min(safe.bottom(), systemSafe.bottom());
+        return hubContent(panelContent(placement, width, height, cutouts), placement.panel(), systemSafe);
+    }
+    static Box hubContent(Box safe, Box panel, Box systemSafe) {
+        int top = Math.max(safe.y(), panel.y()), bottom = Math.min(safe.bottom(), systemSafe.bottom());
         // Move the whole launcher above visible navigation before reducing its height.
         // System top safety and the notch/shortcut edge both limit that movement.
         top = Math.max(Math.max(safe.y(), systemSafe.y()), top - Math.max(0, safe.bottom() - bottom));

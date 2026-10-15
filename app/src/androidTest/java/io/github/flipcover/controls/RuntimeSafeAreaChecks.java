@@ -66,7 +66,10 @@ final class RuntimeSafeAreaChecks {
         DockGeometry.Box widget = owner.resolveContentGeometry(new Point(w, h), rotation, List.of(cut), chrome.anchor(), manual, chrome.homeInset());
         var entry = (DockGeometry.Placement) field(owner, "panelEntryPlacement");
         var handle = SafeAreaManager.clockHandle(snapshot, owner.placement, entry, box(owner, "statusBox"), chrome.handleInsets());
-        for (DockGeometry.Box part : List.of(owner.placement.touch(), entry.touch(), owner.placement.panel(), box(owner, "controlStatusBox"), box(owner, "hubFrame"), box(owner, "taskFrame"), widget, handle.collapsed(), handle.expanded())) {
+        for (DockGeometry.Box part : List.of(owner.placement.touch(), handle.collapsed())) {
+            inside(part, snapshot.rawFrame()); require(!SafeAreaGeometry.overlaps(part, snapshot.contentFrame()) && !SafeAreaGeometry.overlaps(part, cut), "Dock and collapsed handle stay outside the page and real camera");
+        }
+        for (DockGeometry.Box part : List.of(entry.touch(), owner.placement.panel(), box(owner, "controlStatusBox"), box(owner, "hubFrame"), box(owner, "taskFrame"), widget, handle.expanded())) {
             inside(part, snapshot.frame()); require(!SafeAreaGeometry.overlaps(part, cut), "manual UI stays clear of camera in all rotations");
         }
         for (String page : List.of("controls", "notifications")) {

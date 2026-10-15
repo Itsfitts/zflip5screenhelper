@@ -16,9 +16,7 @@ final class SafeAreaGuideView extends View {
     void strokeScale(float scale) { strokeScale = scale; }
     SafeAreaGuideView(Context context) { super(context); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); setFocusable(false); }
     void geometry(SafeAreaManager.Snapshot value, DockGeometry.Placement dock, int selectedEdge) {
-        area = value; edge = selectedEdge; contour.reset(); add(contour, area.frame());
-        // Automatic mode retains the legacy notch-side Dock lane as part of the usable contour.
-        if (!area.manual() && dock != null) { Path lane = new Path(); add(lane, dock.touch()); contour.op(lane, Path.Op.UNION); }
+        area = value; edge = selectedEdge; contour.reset(); add(contour, area.contentFrame());
         for (DockGeometry.Box cut : area.cutouts()) { Path hole = new Path(); add(hole, cut); contour.op(hole, Path.Op.DIFFERENCE); }
         invalidate();
     }
@@ -29,7 +27,7 @@ final class SafeAreaGuideView extends View {
         canvas.save(); canvas.clipRect(0, 0, getWidth(), getHeight()); canvas.drawPath(contour, paint);
         if (edge >= 0) {
             canvas.save(); canvas.clipPath(contour);
-            DockGeometry.Box b = area.frame(); paint.setColor(0xFFFFFF60); paint.setStrokeWidth(stroke * 2);
+            DockGeometry.Box b = area.contentFrame(); paint.setColor(0xFFFFFF60); paint.setStrokeWidth(stroke * 2);
             switch (edge) {
                 case 0 -> canvas.drawLine(b.x(), b.y(), b.x(), b.bottom(), paint);
                 case 1 -> canvas.drawLine(b.x(), b.y(), b.right(), b.y(), paint);

@@ -1,11 +1,11 @@
 <resources>
     <string name="safe_area_title">外屏安全区</string>
-    <string name="safe_area_description">统一调整助手各界面的布局与触摸范围。白条偏高、留白过大或内容靠边时，可按方向手动校准。真实缺口始终避开。</string>
+    <string name="safe_area_description">统一调整助手各界面的布局与触摸范围。快捷栏始终位于安全区外，不再挤占内部内容；白条偏高或留白过大时，可按方向校准。</string>
     <string name="safe_area_direction">选择需要设置的方向</string>
     <string name="safe_area_auto">自动</string>
     <string name="safe_area_manual">手动</string>
-    <string name="safe_area_auto_help">自动：根据屏幕、缺口与系统边衬计算。切回自动会保留手动参数。</string>
-    <string name="safe_area_manual_help">手动：使用当前方向的校准边界，其他方向不受影响。不会关闭系统 Home 或返回手势。</string>
+    <string name="safe_area_auto_help">自动：根据屏幕、缺口与系统边衬计算，保留导航避让设置。外侧空间不足时暂不显示快捷栏，可关闭导航避让或手动缩小安全区。切回自动会保留手动参数。</string>
+    <string name="safe_area_manual_help">手动：仅调整当前方向，快捷栏使用边界外的真实可用区域。外侧空间不足时暂不显示快捷栏，可缩小安全区或恢复自动。不会关闭系统 Home 或返回手势。</string>
     <string name="safe_area_guides">显示安全区辅助线</string>
     <string name="safe_area_guides_help">在外屏描出当前生效边界，不影响触摸。调整时自动显示，退出后恢复此开关的选择。</string>
     <string name="safe_area_begin">开始调整</string>

@@ -643,6 +643,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             + "\n正文综合边衬=" + systemInsets + ", 白条 Home 避让=" + panelHomeInset
             + "\n入口设置=" + prefs.entryPosition(rotation) + ", 自动定位=" + prefs.data.getBoolean("auto_placement", true) + ", 导航避让=" + prefs.avoidNavigation() + ", 额外内移dp=" + prefs.navigationGap()
             + "\n快捷栏计算绘制=" + placement.visual() + ", 触摸=" + placement.touch()
+            + "\n快捷栏安全区外定位=" + (!SafeAreaGeometry.overlaps(placement.touch(), safeArea.contentFrame())) + (placement.touch().width() == 0 || placement.touch().height() == 0 ? "（外侧空间不足，暂不显示）" : "")
             + "\n白条计算绘制带=" + panelEntryPlacement.visual() + ", 触摸=" + panelEntryPlacement.touch()
             + "\n正文边界=" + placement.panel() + ", 背板安全边界=" + cardSafeFrame + "\n" + safeArea.diagnostics()
             + "\n安全区保存配置=" + prefs.safeArea(rotation) + ", 临时校准=" + (safeAreaCalibration != null && safeAreaCalibration.editing()) + ", 辅助线开关=" + prefs.safeAreaGuides();

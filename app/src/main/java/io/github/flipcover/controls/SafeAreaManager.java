@@ -63,14 +63,18 @@ final class SafeAreaManager {
         DockGeometry.Placement anchor = DockGeometry.resolve(area.width(), area.height(), area.cutouts(), area.density(), prefs.corner(area.rotation()), prefs.widthRatio(), prefs.heightRatio(), prefs.data.getBoolean("auto_placement", true), area.rotation(), prefs.reverseLandscapeLayout(area.rotation()));
         DockGeometry.Placement dock = anchor; int navigationInset = 0;
         if (area.manual()) {
-            dock = SafeAreaGeometry.constrain(DockGeometry.edgeTouch(anchor, area.width(), area.height()), area.frame(), area.cutouts());
+            dock = SafeAreaGeometry.outside(DockGeometry.edgeTouch(anchor, area.width(), area.height()), area.contentFrame(), area.width(), area.height(), area.cutouts(), area.density());
             return new Chrome(dock, dock, area.effective().bottom, 0, area.effective());
         }
+        DockGeometry.Box allowed = area.rawFrame();
         if (prefs.avoidNavigation()) {
             Insets safe = Insets.max(mandatory, navigationBounds);
             navigationInset = switch (dock.edge()) { case DockGeometry.TOP -> safe.top; case DockGeometry.LEFT -> safe.left; case DockGeometry.RIGHT -> safe.right; default -> safe.bottom; };
-            dock = DockGeometry.avoidEdge(dock, area.width(), area.height(), Math.max(navigationInset, Ui.dp(context, 16)), Ui.dp(context, prefs.navigationGap()));
+            int minimum = Ui.dp(context, 16), gap = Ui.dp(context, prefs.navigationGap());
+            allowed = new SafeAreaGeometry.Edges(Math.max(safe.left, minimum) + gap, Math.max(safe.top, minimum) + gap, Math.max(safe.right, minimum) + gap, Math.max(safe.bottom, minimum) + gap).frame(area.width(), area.height());
+            dock = DockGeometry.avoidEdge(dock, area.width(), area.height(), Math.max(navigationInset, minimum), gap);
         } else dock = DockGeometry.edgeTouch(dock, area.width(), area.height());
+        dock = SafeAreaGeometry.outside(dock, area.contentFrame(), area.width(), area.height(), area.cutouts(), area.density(), allowed);
         return new Chrome(dock, anchor, Math.max(mandatory.bottom, navigation.bottom), navigationInset, Insets.max(area.effective(), mandatory));
     }
     static String identity(Display display) { Point size = physicalSize(display); return display.getDisplayId() + ":" + display.getName() + ":" + size.x + "x" + size.y; }
@@ -91,14 +95,13 @@ final class SafeAreaManager {
     }
     static Layout contents(Context context, Prefs prefs, Snapshot area, DockGeometry.Placement dock, DockGeometry.Placement anchor, int homeInset) {
         int width = area.width(), height = area.height(), rotation = area.rotation(); float density = area.density(); List<DockGeometry.Box> cutouts = area.cutouts();
-        DockGeometry.Box systemSafe = area.frame(), physical = DockGeometry.panelContent(dock, width, height, cutouts), card = physical.intersect(systemSafe);
+        DockGeometry.Box systemSafe = area.frame(), physical = DockGeometry.physicalContent(width, height, cutouts), card = physical.intersect(systemSafe);
         int statusHeight = Math.round(Ui.dp(context, 20) * prefs.statusScale() / 100f);
         DockGeometry.Box controlStatus = DockGeometry.statusBar(card, width, statusHeight, density).intersect(systemSafe);
         String position = prefs.entryPosition(rotation);
+        DockGeometry.Box entrySpace = area.manual() ? card : DockGeometry.panelContent(dock, width, height, cutouts);
         int topInset = DockGeometry.panelEntryTopInset(position, prefs.statusScale(), density);
-        if (!position.equals("bottom_right")) topInset += Math.max(0, card.y() - physical.y());
-        DockGeometry.Box entrySpace = area.manual() ? DockGeometry.physicalContent(width, height, cutouts).intersect(systemSafe) : null;
-        if (area.manual() && !position.equals("bottom_right")) topInset = DockGeometry.panelEntryTopInset(position, prefs.statusScale(), density) + Math.max(0, card.y() - entrySpace.y());
+        if (!position.equals("bottom_right")) topInset += Math.max(0, card.y() - entrySpace.y());
         DockGeometry.Placement entry = DockGeometry.panelEntry(anchor, dock, width, height, cutouts, density, homeInset, position, topInset, entrySpace);
         if (area.manual()) {
             entry = SafeAreaGeometry.constrain(entry, systemSafe, cutouts);
@@ -107,7 +110,7 @@ final class SafeAreaManager {
         DockGeometry.Box content = physical.intersect(entry.panel()), status = prefs.statusEnabled() ? controlStatus : null;
         if (status != null) { int top = Math.max(content.y(), status.bottom() + Ui.dp(context, 4)); content = new DockGeometry.Box(content.x(), top, content.width(), Math.max(0, content.bottom() - top)); }
         DockGeometry.Placement chrome = new DockGeometry.Placement(dock.visual(), dock.touch(), content, dock.edge(), dock.measured());
-        DockGeometry.Box hub = DockGeometry.hubContent(chrome, width, height, cutouts, systemSafe), available = hub, tasks = hub;
+        DockGeometry.Box hub = DockGeometry.hubContent(physical, chrome.panel(), systemSafe), available = hub, tasks = hub;
         content = content.intersect(systemSafe);
         if (rotation == android.view.Surface.ROTATION_180) {
             entry = DockGeometry.compactTopEntry(entry, density);
@@ -117,7 +120,7 @@ final class SafeAreaManager {
             tasks = DockGeometry.centerVertically(hub, available);
         }
         DockGeometry.Placement result = new DockGeometry.Placement(chrome.visual(), chrome.touch(), content, chrome.edge(), chrome.measured());
-        return new Layout(result, entry, area.contentFrame(), status, controlStatus, hub, available, tasks, DockGeometry.widgetContent(result, entry, status, width, height, cutouts, density).intersect(systemSafe));
+        return new Layout(result, entry, area.contentFrame(), status, controlStatus, hub, available, tasks, DockGeometry.widgetContent(physical, entry, status, density).intersect(systemSafe));
     }
     /** The raw host stays fixed. Page paint and child interaction use distinct, nested rectangles. */
     record Boundary(DockGeometry.Box window, DockGeometry.Box page, DockGeometry.Box content) {

@@ -43,7 +43,7 @@ final class WindowStabilityChecks {
                     test.waitForIdleSync();
                     test.runOnMainSync(this::checkTransitions);
                     test.waitForIdleSync();
-                    test.runOnMainSync(() -> { insets = metrics(24, 66); reconcile(); });
+                    test.runOnMainSync(() -> { insets = metrics(24, 16); reconcile(); });
                     test.waitForIdleSync();
                     test.runOnMainSync(() -> {
                         require(detached == 0, "insets never detach status or arrow after pending layout callbacks");
@@ -110,7 +110,7 @@ final class WindowStabilityChecks {
         entryHideAt = android.os.SystemClock.uptimeMillis() + 10000; field(entry, "hideAt", entryHideAt);
         entry.postDelayed((Runnable) field(entry, "hideHandles"), 10000);
         float alpha = arrow.getAlpha();
-        for (int[] next : new int[][]{{0, 66}, {24, 66}, {24, 0}, {0, 0}, {24, 66}}) {
+        for (int[] next : new int[][]{{0, 16}, {24, 16}, {24, 0}, {0, 0}, {24, 16}}) {
             insets = metrics(next[0], next[1]); reconcile();
             require(field(owner, "dockHandle") == arrow && field(owner, "statusBar") == status && field(owner, "dock") == dock && field(owner, "panelEntry") == entry, "app insets retain all chrome view identities");
             require(mutations == 0 && detached == 0 && arrow.isAttachedToWindow() && status.isAttachedToWindow(), "app insets perform no chrome remove/add operations");
@@ -143,12 +143,15 @@ final class WindowStabilityChecks {
         field(owner, "homeClosing", true); require(!(boolean) geometry("updateWindowInsets"), "home transition keeps its existing lifecycle owner"); field(owner, "homeClosing", false);
     }
     private WindowInsets metrics(int top, int bottom) {
+        // This virtual display has no camera cutout. Keep usable exterior side
+        // lanes while varying the top/bottom bars; a full-page/no-lane case must hide Dock.
         return new WindowInsets.Builder().setInsets(WindowInsets.Type.statusBars(), Insets.of(0, top, 0, 0)).setVisible(WindowInsets.Type.statusBars(), top > 0)
+            .setInsets(WindowInsets.Type.mandatorySystemGestures(), Insets.of(66, 0, 66, 0))
             .setInsets(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, bottom)).setInsetsIgnoringVisibility(WindowInsets.Type.navigationBars(), Insets.of(0, 0, 0, bottom)).setVisible(WindowInsets.Type.navigationBars(), bottom > 0).build();
     }
     private void checkGeometryDiagnostics(PanelEntryView entry) {
         String before = owner.entryGeometryDiagnostics();
-        require(before.contains("可见导航边衬=Insets{left=0, top=0, right=0, bottom=66}") && before.contains("白条计算绘制带="), "diagnostics retain the applied navigation input and calculated entry separately");
+        require(before.contains("可见导航边衬=Insets{left=0, top=0, right=0, bottom=16}") && before.contains("白条计算绘制带="), "diagnostics retain the applied navigation input and calculated entry separately");
         DockGeometry.Box requested = bounds(entry);
         int[] origin = new int[2]; entry.getLocationOnScreen(origin);
         require(before.contains("入口实际窗口=" + new DockGeometry.Box(origin[0], origin[1], entry.getWidth(), entry.getHeight())), "diagnostics use the view's screen location instead of the requested coordinates");

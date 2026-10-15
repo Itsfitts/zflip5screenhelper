@@ -391,7 +391,7 @@ public final class MainActivity extends Activity {
         }
         note("顶部白条向下滑，通知和控制中心从上方跟手展开、向上收起；右底部白条向上滑，面板从下方展开、向下收起。白条平时隐藏，触摸入口仍保留。");
         LinearLayout gestures = group("gesture-options"); toggle(gestures, "白条滑入", "白条可见时长按切换常驻／收起展开模式，透明时长按无效", "gestures_enabled", BuildConfig.DEFAULTS_DOCK_GESTURES); toggle(gestures, "震动反馈", "遵循系统震动设置", "haptics", BuildConfig.DEFAULTS_DOCK_HAPTICS);
-        LinearLayout navigation = group("navigation-options"); toggle(navigation, "快捷按钮避让导航区", "自动安全区下仅移动快捷按钮；手动模式统一使用校准边界", "avoid_navigation", false); slider(navigation, "快捷按钮额外向内偏移", "navigation_gap", 0, 48, prefs.navigationGap(), "dp", value -> { }, value -> prefs.data.edit().putInt("navigation_gap", value).apply());
+        LinearLayout navigation = group("navigation-options"); toggle(navigation, "快捷按钮避让导航区", "自动模式仅调整外侧快捷栏；手动模式按安全区外侧定位", "avoid_navigation", false); slider(navigation, "快捷按钮额外向内偏移", "navigation_gap", 0, 48, prefs.navigationGap(), "dp", value -> { }, value -> prefs.data.edit().putInt("navigation_gap", value).apply());
         SettingsUi.section(body, "为什么各方向的选项不同？");
         note("三星外屏侧边滑入仍可能触发系统返回，底边上滑也可能回到时钟。现在改用顶部或右底部的横向入口，并结合摄像头缺口避让；可按握持习惯分别选择位置。180° 固定左顶部。");
         note("这是调整本应用的入口，不会关闭系统 Home 或返回。不同系统版本、保护壳和起手位置仍可能影响识别；请从预览所示的白条区域起手。");

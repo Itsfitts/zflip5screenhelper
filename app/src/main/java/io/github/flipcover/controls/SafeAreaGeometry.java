@@ -40,7 +40,64 @@ final class SafeAreaGeometry {
         DockGeometry.Box moved = new DockGeometry.Box(visual.x() + fitted.x() - touch.x(), visual.y() + fitted.y() - touch.y(), visual.width(), visual.height()).intersect(fitted);
         return new DockGeometry.Placement(moved, fitted, source.panel().intersect(frame), source.edge(), source.measured());
     }
-    static boolean overlaps(DockGeometry.Box a, DockGeometry.Box b) { return a.x() < b.right() && a.right() > b.x() && a.y() < b.bottom() && a.bottom() > b.y(); }
+    /** The page is fixed. Fit chrome only in exterior regions, never reserve space inside it. */
+    static DockGeometry.Placement outside(DockGeometry.Placement source, DockGeometry.Box page, int width, int height, List<DockGeometry.Box> cutouts, float density) {
+        return outside(source, page, width, height, cutouts, density, new DockGeometry.Box(0, 0, width, height));
+    }
+    static DockGeometry.Placement outside(DockGeometry.Placement source, DockGeometry.Box page, int width, int height, List<DockGeometry.Box> cutouts, float density, DockGeometry.Box allowed) {
+        allowed = allowed.intersect(new DockGeometry.Box(0, 0, width, height));
+        if (source.touch().intersect(allowed).equals(source.touch()) && !overlaps(source.touch(), page) && cutouts.stream().noneMatch(c -> overlaps(source.touch(), c))) return new DockGeometry.Placement(source.visual(), source.touch(), page, source.edge(), source.measured());
+        DockGeometry.Placement best = null; long bestLoss = Long.MAX_VALUE, bestDistance = Long.MAX_VALUE;
+        int margin = Math.max(4, Math.round(3 * density));
+        for (int edge = 0; edge < 4; edge++) {
+            DockGeometry.Box band = switch (edge) {
+                case DockGeometry.TOP -> new DockGeometry.Box(0, 0, width, page.y());
+                case DockGeometry.LEFT -> new DockGeometry.Box(0, 0, page.x(), height);
+                case DockGeometry.RIGHT -> new DockGeometry.Box(page.right(), 0, width - page.right(), height);
+                default -> new DockGeometry.Box(0, page.bottom(), width, height - page.bottom());
+            };
+            java.util.ArrayList<DockGeometry.Box> spaces = new java.util.ArrayList<>(); spaces.add(band.intersect(allowed));
+            for (DockGeometry.Box cut : cutouts) {
+                java.util.ArrayList<DockGeometry.Box> clear = new java.util.ArrayList<>();
+                for (DockGeometry.Box space : spaces) {
+                    DockGeometry.Box hit = space.intersect(cut);
+                    if (hit.width() == 0 || hit.height() == 0) { clear.add(space); continue; }
+                    clear.add(new DockGeometry.Box(space.x(), space.y(), space.width(), hit.y() - space.y()));
+                    clear.add(new DockGeometry.Box(space.x(), hit.bottom(), space.width(), space.bottom() - hit.bottom()));
+                    clear.add(new DockGeometry.Box(space.x(), hit.y(), hit.x() - space.x(), hit.height()));
+                    clear.add(new DockGeometry.Box(hit.right(), hit.y(), space.right() - hit.right(), hit.height()));
+                }
+                spaces = clear;
+            }
+            boolean vertical = edge == DockGeometry.LEFT || edge == DockGeometry.RIGHT;
+            int oldLength = source.vertical() ? source.touch().height() : source.touch().width(), oldThickness = source.vertical() ? source.touch().width() : source.touch().height();
+            if (oldLength <= 0 || oldThickness <= 0) continue;
+            for (DockGeometry.Box space : spaces) {
+                int length = Math.min(oldLength, (vertical ? space.height() : space.width()) - margin * 2);
+                int thickness = Math.min(oldThickness, (vertical ? space.width() : space.height()) - margin);
+                if (length < Math.round(90 * density) || thickness < Math.round(14 * density)) continue;
+                int start = vertical ? space.y() : space.x(), end = vertical ? space.bottom() : space.right();
+                int wanted = edge == source.edge() ? (vertical ? source.touch().y() : source.touch().x()) : (start + end > (vertical ? height : width) ? end - margin - length : start + margin);
+                int along = clamp(wanted, start + margin, end - margin - length);
+                int across = switch (edge) { case DockGeometry.LEFT -> space.x(); case DockGeometry.RIGHT -> space.right() - thickness; case DockGeometry.TOP -> space.y(); default -> space.bottom() - thickness; };
+                DockGeometry.Box touch = vertical ? new DockGeometry.Box(across, along, thickness, length) : new DockGeometry.Box(along, across, length, thickness);
+                int oldVisualLength = source.vertical() ? source.visual().height() : source.visual().width(), oldVisualThickness = source.vertical() ? source.visual().width() : source.visual().height();
+                int oldOffset = source.vertical() ? source.visual().y() - source.touch().y() : source.visual().x() - source.touch().x();
+                int visualLength = Math.max(1, Math.round(oldVisualLength * length / (float) oldLength)), visualThickness = Math.max(1, Math.round(oldVisualThickness * thickness / (float) oldThickness));
+                int visualAlong = along + Math.round(oldOffset * length / (float) oldLength);
+                int visualAcross = across + (edge == DockGeometry.LEFT || edge == DockGeometry.TOP ? thickness - visualThickness : 0);
+                DockGeometry.Box visual = (vertical ? new DockGeometry.Box(visualAcross, visualAlong, visualThickness, visualLength) : new DockGeometry.Box(visualAlong, visualAcross, visualLength, visualThickness)).intersect(touch);
+                long loss = (long) oldLength * oldThickness - (long) length * thickness, distance = Math.abs((long) touch.x() - source.touch().x()) + Math.abs((long) touch.y() - source.touch().y());
+                boolean preferred = edge == source.edge(), wasPreferred = best != null && best.edge() == source.edge();
+                if (best == null || preferred && !wasPreferred || preferred == wasPreferred && (loss < bestLoss || loss == bestLoss && distance < bestDistance)) {
+                    best = new DockGeometry.Placement(visual, touch, page, edge, source.measured()); bestLoss = loss; bestDistance = distance;
+                }
+            }
+        }
+        DockGeometry.Box empty = new DockGeometry.Box(0, 0, 0, 0);
+        return best == null ? new DockGeometry.Placement(empty, empty, page, source.edge(), source.measured()) : best;
+    }
+    static boolean overlaps(DockGeometry.Box a, DockGeometry.Box b) { return a.width() > 0 && a.height() > 0 && b.width() > 0 && b.height() > 0 && a.x() < b.right() && a.right() > b.x() && a.y() < b.bottom() && a.bottom() > b.y(); }
     static DockGeometry.Box localFrame(DockGeometry.Box displayFrame, float scale, int x, int y, int width, int height) {
         return localFrame(displayFrame, scale, scale, x, y, width, height);
     }

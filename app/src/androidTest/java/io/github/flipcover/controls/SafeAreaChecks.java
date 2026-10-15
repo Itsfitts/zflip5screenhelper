@@ -30,6 +30,7 @@ final class SafeAreaChecks {
                 android.content.res.Configuration config = new android.content.res.Configuration(activity.getResources().getConfiguration()); config.densityDpi = 340;
                 android.content.Context context = activity.createConfigurationContext(config);
                 prefs.data.edit().putBoolean("status_enabled", true).commit();
+                checkDockBoundaries(context, prefs);
                 for (int r = 0; r < 4; r++) {
                     int w = r % 2 == 0 ? 748 : 720, h = r % 2 == 0 ? 720 : 748;
                     var cut = switch (r) { case 0 -> new DockGeometry.Box(379, 654, 369, 66); case 1 -> new DockGeometry.Box(654, 0, 66, 369); case 2 -> new DockGeometry.Box(0, 0, 369, 66); default -> new DockGeometry.Box(0, 379, 66, 369); };
@@ -39,11 +40,11 @@ final class SafeAreaChecks {
                             var automatic = switch (r) { case 0 -> Insets.of(0, 0, 0, Math.max(66, reported)); case 1 -> Insets.of(0, 0, Math.max(66, reported), 0); case 2 -> Insets.of(0, Math.max(66, reported), 0, 0); default -> Insets.of(Math.max(66, reported), 0, 0, 0); };
                             var snapshot = new SafeAreaManager.Snapshot(1, "test", r, w, h, 2.125f, true, false, automatic, Insets.NONE, List.of(cut));
                             var anchor = DockGeometry.resolve(w, h, List.of(cut), 2.125f, (r + 3) % 4, .46f, .088f, true, r, false);
-                            var dock = SafeAreaGeometry.constrain(DockGeometry.edgeTouch(anchor, w, h), snapshot.frame(), List.of(cut));
+                            var dock = SafeAreaGeometry.outside(DockGeometry.edgeTouch(anchor, w, h), snapshot.contentFrame(), w, h, List.of(cut), snapshot.density());
                             var layout = SafeAreaManager.contents(context, prefs, snapshot, dock, dock, 0);
                             for (DockGeometry.Box frame : List.of(layout.dock().touch(), layout.entry().touch(), layout.dock().panel(), layout.card(), layout.controlStatus(), layout.hub(), layout.widget(), layout.tasks())) {
                                 require(frame.width() > 0 && frame.height() > 0, "all consumers retain positive geometry at " + r + "/" + position);
-                                require(frame.intersect(snapshot.frame()).equals(frame), "all consumers obey manual bounds");
+                                require(frame.intersect(snapshot.rawFrame()).equals(frame), "all consumers stay on the display");
                                 require(!SafeAreaGeometry.overlaps(frame, cut), "all consumers avoid real cutout");
                             }
                             if (r == 0 && position.equals("bottom_right")) {
@@ -93,7 +94,7 @@ final class SafeAreaChecks {
                         Insets e = Insets.of(0, 0, 0, bottom);
                         var snapshot = new SafeAreaManager.Snapshot(1, "test", 0, 748, 720, 2.125f, true, false, Insets.of(0, 0, 0, 144), e, cuts);
                         var anchor = DockGeometry.resolve(748, 720, cuts, 2.125f, 3, .46f, .088f, true);
-                        var dock = SafeAreaGeometry.constrain(DockGeometry.edgeTouch(anchor, 748, 720), snapshot.frame(), cuts);
+                        var dock = SafeAreaGeometry.outside(DockGeometry.edgeTouch(anchor, 748, 720), snapshot.contentFrame(), 748, 720, cuts, snapshot.density());
                         var layout = SafeAreaManager.contents(context, prefs, snapshot, dock, dock, bottom);
                         require(layout.entry().touch().bottom() == Math.min(654, 720 - bottom), "reducing manual bottom moves right entry downward without inheriting left Dock height: " + bottom);
                         require(!SafeAreaGeometry.overlaps(layout.entry().touch(), dock.touch()), "entry and Dock remain separate");
@@ -106,6 +107,54 @@ final class SafeAreaChecks {
             return "PASS: safe-area; " + assertions + " assertions; four rotations, every legal entry, 0/64/96/144 reports, shared consumers, manual/auto/reset, guide and root menu; physical Samsung routing separate";
         } finally {
             test.runOnMainSync(() -> { var restore = prefs.data.edit().putBoolean("status_enabled", oldStatus); for (int r = 0; r < 4; r++) { if (before[r] == null) restore.remove("safe_area_" + r); else restore.putString("safe_area_" + r, before[r]); } restore.commit(); activity.finish(); });
+        }
+    }
+    private void checkDockBoundaries(android.content.Context context, Prefs prefs) {
+        boolean oldAvoid = prefs.avoidNavigation(), oldAutomatic = prefs.data.getBoolean("auto_placement", true);
+        String[] oldEntries = new String[4]; for (int r = 0; r < 4; r++) oldEntries[r] = prefs.data.getString("panel_entry_" + r, null);
+        try {
+            for (int rotation = 0; rotation < 4; rotation++) for (boolean manual : new boolean[]{false, true}) for (boolean automatic : new boolean[]{false, true}) for (boolean avoid : new boolean[]{false, true}) {
+                prefs.data.edit().putBoolean("auto_placement", automatic).putBoolean("avoid_navigation", avoid).commit();
+                int w = rotation % 2 == 0 ? 748 : 720, h = rotation % 2 == 0 ? 720 : 748;
+                var cut = switch (rotation) { case 0 -> new DockGeometry.Box(379, 654, 369, 66); case 1 -> new DockGeometry.Box(654, 0, 66, 369); case 2 -> new DockGeometry.Box(0, 0, 369, 66); default -> new DockGeometry.Box(0, 379, 66, 369); };
+                for (int adjustment : new int[]{-22, 0, 20}) {
+                    Insets baseline = switch (rotation) { case 0 -> Insets.of(0, 0, 0, 96); case 1 -> Insets.of(0, 0, 66, 64); case 2 -> Insets.of(0, 66, 0, 64); default -> Insets.of(66, 0, 0, 64); };
+                    Insets effective = Insets.of(baseline.left, baseline.top, baseline.right, Math.max(0, baseline.bottom + adjustment));
+                    var area = new SafeAreaManager.Snapshot(1, "test", rotation, w, h, 2.125f, manual, false, baseline, effective, List.of(cut));
+                    var chrome = SafeAreaManager.chrome(context, prefs, area, Insets.of(0, 0, 0, 64), Insets.NONE, Insets.NONE);
+                    var layout = SafeAreaManager.contents(context, prefs, area, chrome.dock(), chrome.anchor(), chrome.homeInset());
+                    boolean shown = layout.dock().touch().width() > 0 && layout.dock().touch().height() > 0;
+                    if (manual || !avoid) require(shown, "camera-free exterior lane remains usable");
+                    else if (shown) {
+                        int minimum = Ui.dp(context, 16), gap = Ui.dp(context, prefs.navigationGap());
+                        var allowed = new SafeAreaGeometry.Edges(minimum + gap, minimum + gap, minimum + gap, Math.max(64, minimum) + gap).frame(w, h);
+                        require(layout.dock().touch().intersect(allowed).equals(layout.dock().touch()), "outside placement retains navigation avoidance and its extra gap");
+                    }
+                    require(!SafeAreaGeometry.overlaps(layout.dock().touch(), area.contentFrame()) && !SafeAreaGeometry.overlaps(layout.dock().visual(), area.contentFrame()), "all Dock pixels and touch targets stay outside the fixed page: " + rotation + "/" + manual + "/" + automatic + "/" + avoid);
+                    require(!SafeAreaGeometry.overlaps(layout.dock().touch(), cut), "exterior touch avoids actual camera");
+                    for (var content : List.of(layout.dock().panel(), layout.hub(), layout.tasks(), layout.widget())) require(content.x() == area.contentFrame().x() && content.width() == area.contentFrame().width(), "Dock never deducts another column from any content consumer");
+                    require(layout.card().equals(area.contentFrame()), "page boundary never depends on Dock placement");
+                    var guide = new SafeAreaGuideView(context); guide.geometry(area, layout.dock(), -1); guide.layout(0, 0, w, h);
+                    var image = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+                    try { guide.draw(new android.graphics.Canvas(image)); var touch = layout.dock().touch(); if (shown) require(android.graphics.Color.alpha(image.getPixel(touch.x() + touch.width() / 2, touch.y() + touch.height() / 2)) == 0, "guide does not include the exterior Dock lane"); } finally { image.recycle(); }
+                }
+            }
+            prefs.data.edit().putBoolean("avoid_navigation", false).putBoolean("auto_placement", true).commit();
+            for (int rotation = 0; rotation < 4; rotation++) for (String position : new String[]{"top_left", "top_right", "bottom_right"}) {
+                if (!Prefs.validEntryPosition(rotation, position)) continue;
+                prefs.entryPosition(rotation, position);
+                var area = new SafeAreaManager.Snapshot(1, "test", rotation, 748, 720, 2.125f, false, false, Insets.NONE, Insets.NONE, List.of());
+                var chrome = SafeAreaManager.chrome(context, prefs, area, Insets.NONE, Insets.NONE, Insets.NONE);
+                var layout = SafeAreaManager.contents(context, prefs, area, chrome.dock(), chrome.anchor(), chrome.homeInset());
+                require(layout.dock().touch().width() == 0 && layout.dock().visual().width() == 0, "full-page display hides Dock without creating an interior lane");
+                require(layout.card().equals(area.rawFrame()) && layout.dock().panel().width() == 748 && layout.dock().panel().height() > 580, "hidden Dock does not collapse the page or its content");
+                require(layout.entry().visual().width() > 200, "hidden Dock leaves a usable white-bar pair");
+                require(position.equals("bottom_right") ? layout.entry().visual().bottom() == 720 : layout.entry().touch().y() == 0, "hidden Dock does not displace the white-bar edge origin");
+                for (var content : List.of(layout.hub(), layout.tasks(), layout.widget())) require(content.width() == 748 && content.height() > 580, "all content consumers retain full space with hidden Dock");
+            }
+        } finally {
+            var restore = prefs.data.edit().putBoolean("auto_placement", oldAutomatic).putBoolean("avoid_navigation", oldAvoid);
+            for (int r = 0; r < 4; r++) { if (oldEntries[r] == null) restore.remove("panel_entry_" + r); else restore.putString("panel_entry_" + r, oldEntries[r]); } restore.commit();
         }
     }
     private void checkSlider(Activity activity) {
