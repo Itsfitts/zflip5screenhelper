@@ -63,6 +63,12 @@ final class SafeAreaChecks {
                                 require(SafeAreaManager.mapContent(snapshot, maximum, offset, Insets.NONE).equals(new DockGeometry.Box(0, 0, right - left, bottom - top)), "already inset hosts are not inset twice");
                                 var keyboard = SafeAreaManager.mapContent(snapshot, maximum, maximum, Insets.of(0, 0, 0, 300));
                                 require(keyboard.bottom() <= windowHeight - 300, "IME limits the local viewport without saving calibration");
+                                var body = layout.dock().panel().intersect(snapshot.contentFrame());
+                                var activityBody = SafeAreaManager.mapContent(snapshot, body, maximum, maximum, Insets.NONE);
+                                var expectedBody = SafeAreaGeometry.localFrame(body, windowWidth / (float) w, windowHeight / (float) h, 0, 0, windowWidth, windowHeight);
+                                require(activityBody.equals(expectedBody), "Activity consumes the same chrome reservation as runtime content in every rotation and scale");
+                                var bodyWindow = new android.graphics.Rect(activityBody.x(), activityBody.y(), activityBody.right(), activityBody.bottom());
+                                require(SafeAreaManager.mapContent(snapshot, body, maximum, bodyWindow, Insets.NONE).equals(new DockGeometry.Box(0, 0, activityBody.width(), activityBody.height())), "already inset Activity chrome is not deducted again after reload");
                             }
                             SafeAreaGuideView guide = new SafeAreaGuideView(context); guide.geometry(snapshot, dock, -1); guide.layout(0, 0, w, h);
                             android.graphics.Bitmap image = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888); guide.draw(new android.graphics.Canvas(image));

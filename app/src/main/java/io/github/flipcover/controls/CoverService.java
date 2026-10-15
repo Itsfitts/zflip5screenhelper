@@ -183,6 +183,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
     void observeSafeArea(Runnable callback) { if (!safeAreaObservers.contains(callback)) safeAreaObservers.add(callback); }
     void unobserveSafeArea(Runnable callback) { safeAreaObservers.remove(callback); }
     SafeAreaManager.Snapshot safeAreaSnapshot() { return safeArea; }
+    DockGeometry.Box activityContentBounds(SafeAreaManager.Snapshot snapshot) { return snapshot == safeArea && placement != null ? placement.panel() : null; }
     DockGeometry.Placement safeAreaDock() { return dockPlacement; }
     void refreshSafeArea() { reconcile(true); }
     private final Runnable updateDisplay = () -> reconcile(false);

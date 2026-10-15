@@ -52,7 +52,7 @@
 `SafeAreaManager` 是显示器尺寸、物理模式、窗口度量和屏幕位置读取的唯一入口。`Snapshot` 是绑定显示器身份、方向、原始宽高、密度及修订号的不可变结果；自动／手动共同输出有效边衬及真实缺口。`contents` 给出正文、入口、状态栏、启动器、任务和组件区域；`clockHandle` 给出收起箭头位置。现有 `DockGeometry` 与 `WidgetSafeArea` 作为纯计算模块保留。
 
 - 快捷栏、白条、收起箭头、状态栏与控制／通知／任务／启动器卡片由 `CoverService` 使用管理器结果挂载。绘制和触摸共享布局，子控件使用父容器实际测量尺寸。
-- 设置、原生卡片编辑和系统输出 Activity 使用 `activityInsets`；预览使用 `contentBounds`。根容器只扣一次边衬，附着时订阅安全区变更、卸载时释放，不增加轮询。
+- 设置、原生卡片编辑和系统输出 Activity 使用 `activityInsets`；预览使用 `contentBounds`。有同一有效快照的运行时布局时，Activity 使用已避让快捷栏、白条及状态栏的正文边界，不能只用页面外框；无有效服务时使用当前显示器安全区。根容器只转换并扣除一次，附着时订阅安全区变更、卸载时释放，不增加轮询。
 - 三星 Activity 的兼容尺寸可能是854×822而悬浮层是748×720。转换使用实际最大窗口范围与原点，不能用资源 density 比值；重建重新转换，键盘只影响临时局部区域。没有服务快照时，从 application 的所选 Display 上下文取得同坐标来源的信息，不使用 Activity 的兼容 Display 与未缩放缺口混合计算。
 - 原生卡片通过 `nativeContent` 和 `nativeFrame`，保留原始画布作为映射分母，再按真实宿主位置适配安全区，避免双重扣边；原生输入层跟随该宿主。
 - `PanelGlassSession` 和截图使用 `rawDisplaySize`，硬件身份及外部应用显示策略使用 `physicalSize`；手动安全区不改变硬件分辨率或第三方应用布局。

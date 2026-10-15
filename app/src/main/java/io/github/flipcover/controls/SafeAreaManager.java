@@ -191,11 +191,16 @@ final class SafeAreaManager {
         Rect maximum = maximumWindowMetrics(context.getSystemService(WindowManager.class)).getBounds();
         float scaleX = maximum.width() / (float) area.width(), scaleY = maximum.height() / (float) area.height();
         if (scaleX <= 0 || scaleY <= 0 || Math.abs(scaleX - scaleY) > Math.max(scaleX, scaleY) * .02f) return standard;
-        return mapContent(area, maximum, window, insets.getInsets(WindowInsets.Type.ime()));
+        CoverService service = CoverService.instance;
+        DockGeometry.Box content = service == null ? null : service.activityContentBounds(area);
+        return mapContent(area, content == null ? area.contentFrame() : content, maximum, window, insets.getInsets(WindowInsets.Type.ime()));
     }
     static DockGeometry.Box mapContent(Snapshot area, Rect maximum, Rect window, Insets ime) {
+        return mapContent(area, area.contentFrame(), maximum, window, ime);
+    }
+    static DockGeometry.Box mapContent(Snapshot area, DockGeometry.Box content, Rect maximum, Rect window, Insets ime) {
         float scaleX = maximum.width() / (float) area.width(), scaleY = maximum.height() / (float) area.height();
-        DockGeometry.Box local = SafeAreaGeometry.localFrame(area.contentFrame(), scaleX, scaleY, window.left - maximum.left, window.top - maximum.top, window.width(), window.height());
+        DockGeometry.Box local = SafeAreaGeometry.localFrame(content.intersect(area.contentFrame()), scaleX, scaleY, window.left - maximum.left, window.top - maximum.top, window.width(), window.height());
         return local.intersect(new SafeAreaGeometry.Edges(ime.left, ime.top, ime.right, ime.bottom).frame(window.width(), window.height()));
     }
     /** Available UI pixels in this window's local coordinates; also used before its views are measured. */
