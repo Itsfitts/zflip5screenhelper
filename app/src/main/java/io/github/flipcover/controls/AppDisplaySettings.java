@@ -101,7 +101,7 @@ final class AppDisplaySettings extends LinearLayout {
     void resume() { if (visible) return; visible = true; bridge.addObserver(bridgeChanged); read(); }
     void pause() { visible = false; generation++; bridge.removeObserver(bridgeChanged); }
     @Override protected void onDetachedFromWindow() { pause(); super.onDetachedFromWindow(); }
-    private String identity(Display display) { return android.os.Process.myUid() / 100000 + ":" + android.os.Build.DEVICE + ":" + android.os.Build.MODEL + ":" + display.getDisplayId() + ":" + display.getName() + ":" + display.getMode().getPhysicalWidth() + "x" + display.getMode().getPhysicalHeight(); }
+    private String identity(Display display) { return android.os.Process.myUid() / 100000 + ":" + android.os.Build.DEVICE + ":" + android.os.Build.MODEL + ":" + SafeAreaManager.identity(display); }
     private boolean active(int request, Display display) { Display selected = Displays.selected(activity, prefs); return visible && generation == request && selected != null && identity(selected).equals(identity(display)); }
     private void read() {
         if (!visible || busy) return;

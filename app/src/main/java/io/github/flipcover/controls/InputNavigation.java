@@ -33,7 +33,7 @@ final class InputNavigation {
         final View view; final String key; final Region region; final Runnable primary, more;
         Rect local;
         Target(View view, String key, Region region, Runnable primary, Runnable more) { this.view = view; this.key = key; this.region = region; this.primary = primary; this.more = more; }
-        Rect bounds(View root) { if (parent(view, SettingsUi.Viewport.class) != null) return SettingsUi.Viewport.bounds(view, local, root); int[] p = new int[2], o = new int[2]; view.getLocationOnScreen(p); root.getLocationOnScreen(o); Rect r = local == null ? new Rect(0, 0, view.getWidth(), view.getHeight()) : new Rect(local); r.offset(p[0] - o[0], p[1] - o[1]); return r; }
+        Rect bounds(View root) { if (parent(view, SettingsUi.Viewport.class) != null) return SettingsUi.Viewport.bounds(view, local, root); int[] p = new int[2], o = new int[2]; SafeAreaManager.screenLocation(view, p); SafeAreaManager.screenLocation(root, o); Rect r = local == null ? new Rect(0, 0, view.getWidth(), view.getHeight()) : new Rect(local); r.offset(p[0] - o[0], p[1] - o[1]); return r; }
     }
     static void bind(View view, String key, Region region, Runnable primary, Runnable more) { view.setTag(R.id.input_target, new Binding(key, region, primary, more)); }
     static void exclude(View view) { view.setTag(R.id.input_excluded, true); }

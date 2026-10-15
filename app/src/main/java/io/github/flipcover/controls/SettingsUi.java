@@ -150,6 +150,8 @@ final class SettingsUi {
             });
         }
         private void commit() { if (committed != getProgress()) { save.accept(getProgress()); committed = getProgress(); } }
+        /** Synchronize a value committed by a sibling button/input, including the cancel baseline. */
+        void committedValue(int value) { committed = Math.max(getMin(), Math.min(getMax(), value)); setProgress(committed); preview.accept(committed); }
         private void cancelPreview() { cancelling = true; setProgress(committed); preview.accept(committed); tracking = false; cancelling = false; }
         @Override public boolean onTouchEvent(MotionEvent event) {
             boolean cancel = event.getActionMasked() == MotionEvent.ACTION_CANCEL;

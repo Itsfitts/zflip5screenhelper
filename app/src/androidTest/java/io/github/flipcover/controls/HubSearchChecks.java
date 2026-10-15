@@ -40,7 +40,7 @@ final class HubSearchChecks {
             test.runOnMainSync(() -> {
                 try { Method attach = ContextWrapper.class.getDeclaredMethod("attachBaseContext", Context.class); attach.setAccessible(true); attach.invoke(owner, activity); } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
                 CoverService.instance = owner; owner.prefs = prefs; owner.display = virtual.getDisplay(); owner.screenContext = activity.createDisplayContext(virtual.getDisplay());
-                field(owner, "displaySignature", virtual.getDisplay().getDisplayId() + ":" + virtual.getDisplay().getRotation() + ":" + Displays.size(virtual.getDisplay()) + ":" + owner.screenContext.getResources().getDisplayMetrics().density + ":" + virtual.getDisplay().getCutout());
+                field(owner, "displaySignature", virtual.getDisplay().getDisplayId() + ":" + virtual.getDisplay().getRotation() + ":" + SafeAreaManager.rawDisplaySize(virtual.getDisplay()) + ":" + owner.screenContext.getResources().getDisplayMetrics().density + ":" + virtual.getDisplay().getCutout());
                 DockGeometry.Box frame = new DockGeometry.Box(0, 0, 720, 748);
                 field(owner, "panelFrame", frame); field(owner, "hubFrame", frame); field(owner, "cardSafeFrame", frame); field(owner, "launcherFrameRotation", virtual.getDisplay().getRotation());
                 field(owner, "placement", DockGeometry.resolve(720, 748, List.of(), 340f / 160, prefs.corner(0), prefs.widthRatio(), prefs.heightRatio(), true));

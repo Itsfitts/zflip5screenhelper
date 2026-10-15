@@ -45,7 +45,7 @@ final class PanelEntryView extends View {
     void modeChanged() { setStateDescription(prefs.dockExpandable() ? "收起展开模式" : "常驻模式"); }
     String geometryDiagnostics() {
         if (!isLaidOut() || getWidth() == 0 || getHeight() == 0) return "入口实际位置：尚未完成布局";
-        int[] origin = new int[2]; getLocationOnScreen(origin);
+        int[] origin = new int[2]; SafeAreaManager.screenLocation(this, origin);
         DockGeometry.Box first = chrome.firstHandle(), second = chrome.secondHandle();
         android.view.WindowInsets insets = getRootWindowInsets();
         String system = insets == null ? "尚未收到窗口边衬" : "窗口强制手势=" + insets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures())

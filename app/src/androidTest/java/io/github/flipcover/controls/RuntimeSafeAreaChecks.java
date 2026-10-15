@@ -44,6 +44,7 @@ final class RuntimeSafeAreaChecks {
                 for (int rotation = 0; rotation < 4; rotation++) for (boolean cutout : new boolean[]{false, true}) for (boolean status : new boolean[]{false, true}) for (boolean navigation : new boolean[]{false, true}) {
                     try { check(context, prefs, rotation, cutout, status, navigation); } catch (Exception failure) { throw new AssertionError(failure); }
                 }
+                for (int rotation = 0; rotation < 4; rotation++) try { checkManual(context, prefs, rotation); } catch (Exception failure) { throw new AssertionError(failure); }
             });
             return "PASS: runtime-safe-area; " + assertions + " assertions; " + cases + " cases; raw renders in files/runtime-safe-area; no Samsung window-routing proof";
         } finally {
@@ -53,6 +54,45 @@ final class RuntimeSafeAreaChecks {
                 restore.commit(); activity.finish();
             });
         }
+    }
+    private void checkManual(Context context, Prefs prefs, int rotation) throws Exception {
+        int w = rotation % 2 == 0 ? 748 : 720, h = rotation % 2 == 0 ? 720 : 748;
+        DockGeometry.Box cut = switch (rotation) { case 0 -> new DockGeometry.Box(379, 654, 369, 66); case 1 -> new DockGeometry.Box(654, 0, 66, 369); case 2 -> new DockGeometry.Box(0, 0, 369, 66); default -> new DockGeometry.Box(0, 379, 66, 369); };
+        Insets manual = Insets.of(12, 28, 14, 20); prefs.data.edit().putBoolean("status_enabled", true).commit();
+        var snapshot = new SafeAreaManager.Snapshot(1, "manual", rotation, w, h, 2.125f, true, false, Insets.of(0, 0, 0, 144), manual, List.of(cut));
+        var chrome = SafeAreaManager.chrome(context, prefs, snapshot, Insets.of(0, 0, 0, 144), Insets.NONE, Insets.NONE);
+        CoverService owner = new CoverService(); owner.screenContext = context; owner.prefs = prefs; owner.placement = chrome.dock();
+        Field safety = CoverService.class.getDeclaredField("safeArea"); safety.setAccessible(true); safety.set(owner, snapshot);
+        DockGeometry.Box widget = owner.resolveContentGeometry(new Point(w, h), rotation, List.of(cut), chrome.anchor(), manual, chrome.homeInset());
+        var entry = (DockGeometry.Placement) field(owner, "panelEntryPlacement");
+        var handle = SafeAreaManager.clockHandle(snapshot, owner.placement, entry, box(owner, "statusBox"), chrome.handleInsets());
+        for (DockGeometry.Box part : List.of(owner.placement.touch(), entry.touch(), owner.placement.panel(), box(owner, "controlStatusBox"), box(owner, "hubFrame"), box(owner, "taskFrame"), widget, handle.collapsed(), handle.expanded())) {
+            inside(part, snapshot.frame()); require(!SafeAreaGeometry.overlaps(part, cut), "manual UI stays clear of camera in all rotations");
+        }
+        for (String page : List.of("controls", "notifications")) {
+            InterfaceCard card = owner.buildPanelCard(page, snapshot.rawFrame(), owner.placement.panel().y());
+            try {
+                measure(card, w, h); View content = card.getChildAt(0);
+                inside(new DockGeometry.Box(content.getPaddingLeft(), content.getPaddingTop(), w - content.getPaddingLeft() - content.getPaddingRight(), h - content.getPaddingTop() - content.getPaddingBottom()), snapshot.frame());
+                picture(card, "manual-" + page + "-" + rotation);
+            } finally { card.release(); }
+        }
+        AppHubView.Listener listener = new AppHubView.Listener() { public void action(String id) { } public void editFavorites() { } public void editPinned() { } public void expand(boolean value) { } public void close() { } };
+        for (boolean task : new boolean[]{false, true}) {
+            AppHubView hub = new AppHubView(context, prefs, listener); hub.showTasks(task); FrameLayout host = owner.attachHubContent(hub); InterfaceCard card = (InterfaceCard) host.getChildAt(0);
+            try {
+                if (task) { var changed = CoverService.class.getDeclaredMethod("taskPageChanged", RecentTasksView.class); changed.setAccessible(true); changed.invoke(owner, hub.taskPage()); }
+                measure(host, w, h);
+                View content = task ? hub.findViewWithTag("tasks-stage") : hub;
+                Rect bounds = new Rect(); content.getDrawingRect(bounds); card.offsetDescendantRectToMyCoords(content, bounds);
+                inside(new DockGeometry.Box(bounds.left, bounds.top, bounds.width(), bounds.height()), snapshot.frame());
+                picture(host, "manual-" + (task ? "tasks" : "launcher") + "-" + rotation);
+            }
+            finally { card.release(); host.removeAllViews(); }
+        }
+        var nativeFrame = SafeAreaManager.nativeFrame(w / 2.125f, h / 2.125f, new Point(w, h), 2.125f, widget, widget);
+        require(nativeFrame.left() == 0 && nativeFrame.top() == 0 && Math.abs(nativeFrame.width() * 2.125f - widget.width()) < 1 && Math.abs(nativeFrame.height() * 2.125f - widget.height()) < 1, "native host already at safe bounds is not inset twice");
+        cases++;
     }
     private void check(Context context, Prefs prefs, int rotation, boolean hasCutout, boolean showStatus, boolean showNavigation) throws Exception {
         int width = rotation % 2 == 0 ? 748 : 720, height = rotation % 2 == 0 ? 720 : 748;

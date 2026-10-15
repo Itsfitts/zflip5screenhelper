@@ -135,7 +135,7 @@ final class DetailSheet extends FrameLayout {
         // Capture the button before focus or a later layout can change its position.
         sourceBounds = null;
         if (source != null && source.isAttachedToWindow() && source.getWidth() > 0 && source.getHeight() > 0) {
-            int[] position = new int[2]; source.getLocationOnScreen(position);
+            int[] position = new int[2]; SafeAreaManager.screenLocation(source, position);
             sourceBounds = new android.graphics.RectF(position[0], position[1], position[0] + source.getWidth() * source.getScaleX(), position[1] + source.getHeight() * source.getScaleY());
         }
         requestFocus();
@@ -164,7 +164,7 @@ final class DetailSheet extends FrameLayout {
         if (sourceBounds == null) return;
         // Use the untransformed layout even when closing partway through the entrance.
         // Recompute for content that changed size while the sheet was open.
-        int[] position = new int[2]; getLocationOnScreen(position);
+        int[] position = new int[2]; SafeAreaManager.screenLocation(this, position);
         originX = sourceBounds.centerX() - position[0] - card.getLeft() - card.getWidth() / 2f;
         originY = sourceBounds.centerY() - position[1] - card.getTop() - card.getHeight() / 2f;
         originScale = Math.min(1, Math.min(sourceBounds.width() / Math.max(1, card.getWidth()), sourceBounds.height() / Math.max(1, card.getHeight())));

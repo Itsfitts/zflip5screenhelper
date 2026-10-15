@@ -192,7 +192,8 @@ public final class MainActivity extends Activity {
             Runnable execute = () -> { CoverService service = CoverService.instance; if (id.equals("back")) back(); else if (service == null || getDisplay() == null || !service.inputShortcut(id, getDisplay().getDisplayId())) toast("请在已选择的外屏开启助手后使用快捷栏"); };
             if (route.equals("order") && draft != null && !draft.equals(savedActions(draftKind))) confirm("放弃这次编辑？", "尚未完成的修改不会保存。", "放弃并继续", () -> { draft = null; draftKind = null; popPage(); execute.run(); }); else execute.run();
         }); rootLayer = inputRoot; rootLayer.setBackgroundColor(SettingsUi.BACKGROUND);
-        rootLayer.setOnApplyWindowInsetsListener((view, insets) -> { android.graphics.Insets safe = CoverSafeArea.activityInsets(this, view, insets); view.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
+        SafeAreaManager.observe(rootLayer);
+        rootLayer.setOnApplyWindowInsetsListener((view, insets) -> { android.graphics.Insets safe = SafeAreaManager.activityInsets(this, view, insets); view.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
         rootLayer.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> { if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) view.requestApplyInsets(); });
         outer = SettingsUi.column(this); SettingsUi.Viewport viewport = new SettingsUi.Viewport(this, prefs.settingsScale()); viewport.addView(outer, new FrameLayout.LayoutParams(-1, -1)); rootLayer.addView(viewport, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout header = SettingsUi.row(this); header.setMinimumHeight(Ui.dp(this, 52)); header.setPadding(Ui.dp(this, page.equals("main") ? 16 : 2), Ui.dp(this, 2), Ui.dp(this, 8), Ui.dp(this, 2));
@@ -332,7 +333,7 @@ public final class MainActivity extends Activity {
                 }
             }
             @Override public void number(String title, int value, java.util.function.IntPredicate accept) {
-                DetailSheet modal = openSheet(title); EditText input = SettingsUi.search(MainActivity.this, title, String.valueOf(value)); input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); input.setSelectAllOnFocus(true); modal.content.addView(input);
+                DetailSheet modal = openSheet(title); EditText input = SettingsUi.search(MainActivity.this, title, String.valueOf(value)); input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED); input.setSelectAllOnFocus(true); modal.content.addView(input);
                 modal.content.addView(SettingsUi.button(MainActivity.this, "确定", () -> { try { if (!accept.test(Integer.parseInt(input.getText().toString()))) throw new IllegalArgumentException(); dismissSheet(); } catch (RuntimeException error) { input.setError(getString(R.string.safe_area_invalid)); } }));
                 modal.content.addView(SettingsUi.button(MainActivity.this, "取消", MainActivity.this::dismissSheet));
             }
@@ -622,11 +623,11 @@ public final class MainActivity extends Activity {
     private void calibrate() {
         begin("屏幕适配", "calibrate"); Display display = Displays.selected(this, prefs);
         if (display == null) { link(group("calibrate-unavailable"), 0, "先选择外屏", "未发现可用的目标显示器", "display"); return; }
-        LinearLayout preview = group("calibration-preview"); preview.addView(new SettingsIllustration(this, SettingsIllustration.SAFE_AREA, prefs)); note(display.getCutout() == null ? "系统尚未报告缺口。示意为估计，需确认触摸位置在发光区域内。" : "已读取系统缺口；边界与触摸范围仍需本机确认。");
+        LinearLayout preview = group("calibration-preview"); preview.addView(new SettingsIllustration(this, SettingsIllustration.SAFE_AREA, prefs)); note(SafeAreaManager.cutout(display) == null ? "系统尚未报告缺口。示意为估计，需确认触摸位置在发光区域内。" : "已读取系统缺口；边界与触摸范围仍需本机确认。");
         LinearLayout options = group("calibration-options"); LinearLayout manual = SettingsUi.group(this); manual.setTag("calibration-manual"); SettingsUi.add(body, manual);
         Switch automatic = SettingsUi.toggle(options, "根据系统缺口定位", "每个旋转方向使用对应的安全区域", prefs.data.getBoolean("auto_placement", true), enabled -> { prefs.data.edit().putBoolean("auto_placement", enabled).apply(); manual.setVisibility(enabled ? View.GONE : View.VISIBLE); }); automatic.setTag("auto_placement"); manual.setVisibility(automatic.isChecked() ? View.GONE : View.VISIBLE);
-        choice(manual, "当前方向的停靠角落", "calibration-corner", new String[]{"左上", "右上", "右下", "左下"}, new Object[]{0, 1, 2, 3}, () -> prefs.corner(display.getRotation()), value -> { if (Displays.selected(this, prefs) == null || Displays.selected(this, prefs).getDisplayId() != display.getDisplayId()) throw new IllegalStateException("外屏已改变，请重新打开设置"); prefs.data.edit().putInt("corner_" + display.getRotation(), (int) value).apply(); });
-        if (prefs.reverseLandscapeLayout(display.getRotation())) note("左右反向已开启：快捷栏显示在上述停靠角落的对角位置，并继续避让真实缺口。");
+        choice(manual, "当前方向的停靠角落", "calibration-corner", new String[]{"左上", "右上", "右下", "左下"}, new Object[]{0, 1, 2, 3}, () -> prefs.corner(SafeAreaManager.rotation(display)), value -> { if (Displays.selected(this, prefs) == null || Displays.selected(this, prefs).getDisplayId() != display.getDisplayId()) throw new IllegalStateException("外屏已改变，请重新打开设置"); prefs.data.edit().putInt("corner_" + SafeAreaManager.rotation(display), (int) value).apply(); });
+        if (prefs.reverseLandscapeLayout(SafeAreaManager.rotation(display))) note("左右反向已开启：快捷栏显示在上述停靠角落的对角位置，并继续避让真实缺口。");
         slider(manual, "快捷栏长度", "dock_width", 25, 70, Math.round(prefs.widthRatio() * 100), "%", value -> { }, value -> prefs.data.edit().putFloat("dock_width", value / 100f).apply());
         slider(manual, "可见区域厚度", "dock_height", 5, 22, Math.round(prefs.heightRatio() * 100), "%", value -> { }, value -> prefs.data.edit().putFloat("dock_height", value / 100f).apply());
         group("calibrate-stop").addView(SettingsUi.settingRow(this, 0, "暂停快捷栏", "保留当前布局配置", () -> { prefs.data.edit().putBoolean("enabled", false).apply(); toast("已暂停快捷栏"); }));
@@ -677,8 +678,9 @@ public final class MainActivity extends Activity {
         report.append("采集时间：").append(android.text.format.DateFormat.format("yyyy-MM-dd HH:mm:ss", new java.util.Date())).append('\n');
         report.append("快捷栏状态：").append(CoverService.status).append("\n显示开关：").append(prefs.enabled()).append("\n系统报告锁屏：").append(getSystemService(android.app.KeyguardManager.class).isKeyguardLocked()).append('\n');
         report.append("面板模糊开关：").append(prefs.panelBlur()).append("\n系统允许跨窗口模糊：").append(android.os.Build.VERSION.SDK_INT >= 31 && getSystemService(android.view.WindowManager.class).isCrossWindowBlurEnabled()).append('\n').append(PowerDiagnostics.local(this));
-        for (Display display : Displays.all(this)) report.append(Displays.describe(display)).append("\n物理模式：").append(display.getMode().getPhysicalWidth()).append('×').append(display.getMode().getPhysicalHeight()).append("\n状态：").append(display.getState()).append("\n缺口：").append(display.getCutout()).append('\n');
+        for (Display display : Displays.all(this)) report.append(Displays.describe(display)).append("\n物理模式：").append(SafeAreaManager.physicalSize(display).x).append('×').append(SafeAreaManager.physicalSize(display).y).append("\n状态：").append(display.getState()).append("\n缺口：").append(SafeAreaManager.cutout(display)).append('\n');
         CoverService service = CoverService.instance; if (service != null) { report.append(service.windowDiagnostics()).append(service.blurDiagnostics()); if (service.placement != null) report.append("可见区：").append(service.placement.visual()).append("\n触控区：").append(service.placement.touch()).append("\n缺口定位：").append(service.placement.measured()); } report.append(CoverService.lifecycleDiagnostics());
+        report.append(SafeAreaManager.windowDiagnostics(this));
         return report.toString();
     }
     private void exportConfiguration() { open(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, "flip-cover-config.json"), 201); }

@@ -32,7 +32,7 @@ final class NativeCardInput {
         if (id == dismissedCard && launcher == dismissedLauncher && epoch == dismissedEpoch) { close(); return; }
         if (!service.nativeInputEligible() || id < 0 || views == null || !(CoverApp.inputs(service).needsCapture() || CoverApp.inputs(service).keyboardAvailable())) { rejectedCard = -1; close(); return; }
         if (rejectedCard == id) return;
-        android.graphics.Point size = Displays.size(service.display);
+        android.graphics.Point size = SafeAreaManager.rawDisplaySize(service.display);
         DockGeometry.Box bounds = service.nativeHostBounds(service.display);
         if (bounds == null) bounds = new DockGeometry.Box(0, 0, size.x, size.y);
         if (card != id || this.launcher != launcher || !bounds.equals(hostBounds)) close();

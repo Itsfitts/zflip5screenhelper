@@ -22,7 +22,7 @@ final class RotationControls extends LinearLayout {
         LinearLayout words = (LinearLayout) automaticRow.getChildAt(1);
         status = Ui.text(context, "", PanelUi.SECONDARY, Ui.MUTED); status.setTag("rotation-status"); status.setMinLines(2); status.setMaxLines(2); status.setEllipsize(android.text.TextUtils.TruncateAt.END); status.setPadding(0, Ui.dp(context, 2), 0, 0); words.addView(status);
         automatic = new GlassToggle(context, "外屏自动旋转", owner.rotationAutomatic(), toggleAutomatic); automatic.setTag("detail-switch-rotation"); automaticRow.addView(automatic); addView(automaticRow);
-        angles = new ControlRotationTabs(context, owner.display.getRotation(), angle -> { owner.lockRotation(angle); dismiss.run(); });
+        angles = new ControlRotationTabs(context, SafeAreaManager.rotation(owner.display), angle -> { owner.lockRotation(angle); dismiss.run(); });
         LayoutParams size = new LayoutParams(-2, Ui.dp(context, PanelUi.SLOT)); size.gravity = Gravity.CENTER_HORIZONTAL; size.setMargins(Ui.dp(context, PanelUi.INSET), Ui.dp(context, 3), Ui.dp(context, PanelUi.INSET), Ui.dp(context, 3)); addView(angles, size);
         Runnable toggleReversed = () -> { owner.prefs.reverseLandscapeRotation(!owner.prefs.reverseLandscapeRotation()); refresh(); };
         LinearLayout reverseRow = PanelUi.row(context, 0, "左右反向", "仅横屏快捷栏换边 · 白条位置不变", toggleReversed);
@@ -32,7 +32,7 @@ final class RotationControls extends LinearLayout {
     }
     void refresh() {
         boolean enabled = owner.rotationAutomatic(); automatic.state(enabled); status.setText(enabled ? "已开启 · 所选外屏 (2秒轮询)" : "已关闭 · 所选外屏");
-        reversed.state(owner.prefs.reverseLandscapeRotation()); angles.source(owner.display.getRotation());
+        reversed.state(owner.prefs.reverseLandscapeRotation()); angles.source(SafeAreaManager.rotation(owner.display));
     }
     void release() { owner.releaseRotation(); dismiss.run(); }
 }

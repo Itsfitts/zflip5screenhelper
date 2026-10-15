@@ -42,7 +42,7 @@ final class CoverRotation {
     boolean enabled() { return enabled; }
     boolean start() {
         if (owner.display == null || owner.display.getDisplayId() <= 0 || !sensor.canDetectOrientation() || !CoverApp.bridge(owner).granted()) return false;
-        stop(); enabled = true; displayId = owner.display.getDisplayId(); referenceRotation = owner.display.getRotation(); listen(); owner.rotationStateChanged(); return true;
+        stop(); enabled = true; displayId = owner.display.getDisplayId(); referenceRotation = SafeAreaManager.rotation(owner.display); listen(); owner.rotationStateChanged(); return true;
     }
     void stop() { boolean changed = enabled; enabled = suspended = false; generation++; afterFlight = null; reference = candidate = pendingAngle = -1; busyRetries = 0; owner.main.removeCallbacks(apply); owner.main.removeCallbacks(sample); sensor.disable(); if (changed) owner.rotationStateChanged(); }
     void suspend() {
@@ -79,7 +79,7 @@ final class CoverRotation {
         int next = target(reference, angle, referenceRotation);
         if (next == candidate) return;
         owner.main.removeCallbacks(apply); candidate = next; busyRetries = 0;
-        if (next >= 0 && !busy && owner.display.getRotation() != next) owner.main.postDelayed(apply, 280);
+        if (next >= 0 && !busy && SafeAreaManager.rotation(owner.display) != next) owner.main.postDelayed(apply, 280);
     }
     private void applyCandidate() {
         if (!valid()) { if (!suspended) checkActive(); return; }

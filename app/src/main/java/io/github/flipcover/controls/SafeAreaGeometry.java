@@ -7,13 +7,19 @@ final class SafeAreaGeometry {
     record Edges(int left, int top, int right, int bottom) {
         static final Edges NONE = new Edges(0, 0, 0, 0);
         boolean valid(int width, int height) {
-            return left >= 0 && top >= 0 && right >= 0 && bottom >= 0
-                && (long) left + right <= width - Math.min(width, 160)
-                && (long) top + bottom <= height - Math.min(height, 160);
+            return left >= -width && top >= -height && right >= -width && bottom >= -height
+                && (long) Math.max(0, left) + Math.max(0, right) <= width - Math.min(width, 160)
+                && (long) Math.max(0, top) + Math.max(0, bottom) <= height - Math.min(height, 160);
         }
-        DockGeometry.Box frame(int width, int height) { return new DockGeometry.Box(left, top, Math.max(0, width - left - right), Math.max(0, height - top - bottom)); }
+        Edges clipped() { return new Edges(Math.max(0, left), Math.max(0, top), Math.max(0, right), Math.max(0, bottom)); }
+        Edges plus(Edges other) { return new Edges(Math.addExact(left, other.left), Math.addExact(top, other.top), Math.addExact(right, other.right), Math.addExact(bottom, other.bottom)); }
+        Edges minus(Edges other) { return new Edges(left - other.left, top - other.top, right - other.right, bottom - other.bottom); }
+        DockGeometry.Box frame(int width, int height) { Edges e = clipped(); return new DockGeometry.Box(e.left, e.top, Math.max(0, width - e.left - e.right), Math.max(0, height - e.top - e.bottom)); }
     }
-    record Profile(boolean manual, int width, int height, String display, Edges edges) {
+    record Profile(boolean manual, int width, int height, String display, Edges edges, Edges reference) {
+        Profile(boolean manual, int width, int height, String display, Edges edges) { this(manual, width, height, display, edges, null); }
+        Edges offsets() { return reference == null ? edges : edges.minus(reference); }
+        boolean acceptsOffset(int edge, int value) { int extent = edge % 2 == 0 ? width : height; return edge >= 0 && edge < 4 && value >= -extent && value <= Math.max(0, extent - 160); }
         boolean matches(String identity, int w, int h) { return display.equals(identity) && width == w && height == h && edges.valid(w, h); }
     }
     static DockGeometry.Placement constrain(DockGeometry.Placement source, DockGeometry.Box frame, List<DockGeometry.Box> cutouts) {
@@ -36,8 +42,11 @@ final class SafeAreaGeometry {
     }
     static boolean overlaps(DockGeometry.Box a, DockGeometry.Box b) { return a.x() < b.right() && a.right() > b.x() && a.y() < b.bottom() && a.bottom() > b.y(); }
     static DockGeometry.Box localFrame(DockGeometry.Box displayFrame, float scale, int x, int y, int width, int height) {
-        int left = clamp(Math.round(displayFrame.x() * scale) - x, 0, width), top = clamp(Math.round(displayFrame.y() * scale) - y, 0, height);
-        int right = clamp(Math.round(displayFrame.right() * scale) - x, left, width), bottom = clamp(Math.round(displayFrame.bottom() * scale) - y, top, height);
+        return localFrame(displayFrame, scale, scale, x, y, width, height);
+    }
+    static DockGeometry.Box localFrame(DockGeometry.Box displayFrame, float scaleX, float scaleY, int x, int y, int width, int height) {
+        int left = clamp(Math.round(displayFrame.x() * scaleX) - x, 0, width), top = clamp(Math.round(displayFrame.y() * scaleY) - y, 0, height);
+        int right = clamp(Math.round(displayFrame.right() * scaleX) - x, left, width), bottom = clamp(Math.round(displayFrame.bottom() * scaleY) - y, top, height);
         return new DockGeometry.Box(left, top, right - left, bottom - top);
     }
     private static int clamp(int n, int min, int max) { return Math.max(min, Math.min(max, n)); }

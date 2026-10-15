@@ -25,6 +25,12 @@ try {
       if (fs.statSync(full).size > 10 * 1024 * 1024) errors.push(`Source file exceeds 10 MiB: ${file}`);
       if (!/\.(?:md|mjs|json|yml|gradle|java|kt|properties)$/.test(file)) continue;
       const content = fs.readFileSync(full, 'utf8');
+      // Business UI must consume the safety manager's coordinate contract. View-local
+      // measured sizes and MeasureSpec remain valid; hardware/capture APIs live in the manager.
+      if (/^app\/src\/main\/.*\.(?:java|kt)$/.test(file) && !file.endsWith('/SafeAreaManager.java')) {
+        const code = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+        if (/\.(?:getRealSize|getRealMetrics|getMaximumWindowMetrics|getCurrentWindowMetrics|getLocationOnScreen|getPhysicalWidth|getPhysicalHeight)\s*\(|\.(?:widthPixels|heightPixels)\b(?!\s*\()/.test(code)) errors.push(`Screen geometry must go through SafeAreaManager: ${file}`);
+      }
       if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9_]{30,}/.test(content)) errors.push(`Credential pattern in ${file}`);
       // Historical evidence may refer to local captures; current documentation must work in a clone.
       if (!(file === 'README.md' || file === 'AGENTS.md' || (file.startsWith('docs/') && file !== 'docs/project-history.md'))) continue;

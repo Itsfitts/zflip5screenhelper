@@ -176,13 +176,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
         @Override public void onTorchModeUnavailable(String cameraId) { if (cameraId.equals(torchCamera)) { torchOn = null; if (panels != null) panels.updateStates(); if (detailContent!=null) detailContent.torchChanged(); } }
     };
     private int navigationInsetPixels;
-    private CoverSafeArea.Snapshot safeArea;
+    private SafeAreaManager.Snapshot safeArea;
     private SafeAreaGuideView safeAreaGuide;
     SafeAreaCalibration safeAreaCalibration;
     private final java.util.List<Runnable> safeAreaObservers = new java.util.ArrayList<>();
     void observeSafeArea(Runnable callback) { if (!safeAreaObservers.contains(callback)) safeAreaObservers.add(callback); }
     void unobserveSafeArea(Runnable callback) { safeAreaObservers.remove(callback); }
-    CoverSafeArea.Snapshot safeAreaSnapshot() { return safeArea; }
+    SafeAreaManager.Snapshot safeAreaSnapshot() { return safeArea; }
     DockGeometry.Placement safeAreaDock() { return dockPlacement; }
     void refreshSafeArea() { reconcile(true); }
     private final Runnable updateDisplay = () -> reconcile(false);
@@ -449,8 +449,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             && !getSystemService(KeyguardManager.class).isKeyguardLocked() && (prefs.enabled() || statusVisibility.enabled() || dockAppRulesEnabled);
     }
     private CoverWindowQuery.Target foregroundTarget(Display target) {
-        Point size = Displays.size(target);
-        return new CoverWindowQuery.Target(target.getDisplayId(), target.getName(), target.getRotation(), size.x, size.y);
+        Point size = SafeAreaManager.rawDisplaySize(target);
+        return new CoverWindowQuery.Target(target.getDisplayId(), target.getName(), SafeAreaManager.rotation(target), size.x, size.y);
     }
     private void invalidateForegroundQuery() {
         if (foregroundQuery != null) foregroundQuery.invalidate();
@@ -577,8 +577,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
                 setStatus(!prefs.enabled() ? "快捷栏已暂停" : selected == null ? "未检测到外屏，请手动选择" : locked ? "系统报告锁屏，快捷栏已隐藏" : "外屏未亮起，快捷栏已隐藏（状态 " + selected.getState() + "）");
                 return;
             }
-            Point size = Displays.size(selected);
-            int rotation = selected.getRotation();
+            Point size = SafeAreaManager.rawDisplaySize(selected);
+            int rotation = SafeAreaManager.rotation(selected);
             if (display == null || display.getDisplayId() != selected.getDisplayId()) { resetStatusApplication(); dockVisibility.reset(); windowPackages.clear(); launcherHostFocused = false; keyboardVisible = null; }
             observeForeground(null);
             Context context = createDisplayContext(selected);
@@ -589,8 +589,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
             android.graphics.Insets mandatory = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures());
             android.graphics.Insets navigation = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets navigationBounds = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars());
-            android.graphics.Insets systemInsets = contentInsets(displayInsets, selected.getCutout());
-            String nextDisplaySignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + selected.getCutout();
+            android.graphics.Insets systemInsets = contentInsets(displayInsets, SafeAreaManager.cutout(selected));
+            String nextDisplaySignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + SafeAreaManager.cutout(selected);
             String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets;
             if (!force && nextSignature.equals(signature) && dock != null && dock.isAttachedToWindow() && panelEntry != null && panelEntry.isAttachedToWindow()) { syncDockVisibility(); resumeNativeCardUpdates(); return; }
             // IME and foreground changes can alter navigation insets on the same display.
@@ -629,15 +629,15 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private DockGeometry.Box resolveWindowGeometry(Display selected, Point size, int rotation, android.graphics.Insets mandatory, android.graphics.Insets navigation, android.graphics.Insets navigationBounds, android.graphics.Insets systemInsets) {
         float density = screenContext.getResources().getDisplayMetrics().density;
         ArrayList<DockGeometry.Box> cutouts = new ArrayList<>();
-        if (selected.getCutout() != null) for (android.graphics.Rect r : selected.getCutout().getBoundingRects()) cutouts.add(new DockGeometry.Box(r.left, r.top, r.width(), r.height()));
-        safeArea = CoverSafeArea.resolve(screenContext, prefs, selected, size, systemInsets, safeAreaCalibration == null ? null : safeAreaCalibration.preview(selected));
-        CoverSafeArea.Chrome chrome = CoverSafeArea.chrome(screenContext, prefs, safeArea, mandatory, navigation, navigationBounds);
+        if (SafeAreaManager.cutout(selected) != null) for (android.graphics.Rect r : SafeAreaManager.cutout(selected).getBoundingRects()) cutouts.add(new DockGeometry.Box(r.left, r.top, r.width(), r.height()));
+        safeArea = SafeAreaManager.resolve(screenContext, prefs, selected, size, systemInsets, safeAreaCalibration == null ? null : safeAreaCalibration.preview(selected));
+        SafeAreaManager.Chrome chrome = SafeAreaManager.chrome(screenContext, prefs, safeArea, mandatory, navigation, navigationBounds);
         placement = chrome.dock(); DockGeometry.Placement entryAnchor = chrome.anchor();
         int panelHomeInset = chrome.homeInset(); navigationInsetPixels = chrome.navigationInset(); systemInsets = safeArea.effective();
         DockGeometry.Box widgetArea = resolveContentGeometry(size, rotation, cutouts, entryAnchor, systemInsets, panelHomeInset);
         computedEntryGeometryInputs = "显示器=" + selected.getDisplayId() + ", rotation=" + rotation + ", size=" + size.x + "×" + size.y + ", density=" + density
             + "\n计算所用最大窗口度量=" + entryWindowMetrics + "\n" + coverWindowInsets.diagnostics()
-            + "\nDisplay 缺口=" + selected.getCutout() + "\n缺口矩形=" + cutouts
+            + "\nDisplay 缺口=" + SafeAreaManager.cutout(selected) + "\n缺口矩形=" + cutouts
             + "\n强制手势边衬=" + mandatory + "\n可见导航边衬=" + navigation + "\n忽略可见性的导航边衬=" + navigationBounds
             + "\n正文综合边衬=" + systemInsets + ", 白条 Home 避让=" + panelHomeInset
             + "\n入口设置=" + prefs.entryPosition(rotation) + ", 自动定位=" + prefs.data.getBoolean("auto_placement", true) + ", 导航避让=" + prefs.avoidNavigation() + ", 额外内移dp=" + prefs.navigationGap()
@@ -645,10 +645,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             + "\n白条计算绘制带=" + panelEntryPlacement.visual() + ", 触摸=" + panelEntryPlacement.touch()
             + "\n正文边界=" + placement.panel() + ", 背板安全边界=" + cardSafeFrame + "\n" + safeArea.diagnostics()
             + "\n安全区保存配置=" + prefs.safeArea(rotation) + ", 临时校准=" + (safeAreaCalibration != null && safeAreaCalibration.editing()) + ", 辅助线开关=" + prefs.safeAreaGuides();
-        android.graphics.Insets handleInsets = chrome.handleInsets();
-        int handleTop = Math.max(handleInsets.top, statusBox == null ? 0 : statusBox.bottom());
-        DockGeometry.Box handleBox = DockGeometry.clockHandle(placement, size.x, size.y, cutouts, density, new DockGeometry.Box(handleInsets.left, handleTop, Math.max(0, size.x - handleInsets.left - handleInsets.right), Math.max(0, size.y - handleTop - handleInsets.bottom)), panelEntryPlacement.touch());
-        dockHandlePositions = DockGeometry.clockHandlePositions(placement, handleBox);
+        dockHandlePositions = SafeAreaManager.clockHandle(safeArea, placement, panelEntryPlacement, statusBox, chrome.handleInsets());
         return widgetArea;
     }
     /** Insets can change between apps without invalidating the mounted chrome or its subscriptions. */
@@ -692,24 +689,25 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     /** Visibility-aware system bars; physical cutout safety also works when window metrics are unavailable. */
     static android.graphics.Insets contentInsets(android.view.WindowInsets insets, android.view.DisplayCutout cutout) {
-        return CoverSafeArea.automaticInsets(insets, cutout);
+        return SafeAreaManager.automaticInsets(insets, cutout);
     }
     /** One display-coordinate content frame for runtime pages and both native card hosts. Entry touch keeps its own edge policy. */
     DockGeometry.Box resolveContentGeometry(Point size, int rotation, java.util.List<DockGeometry.Box> cutouts, DockGeometry.Placement entryAnchor, android.graphics.Insets insets, int homeInset) {
-        CoverSafeArea.Snapshot area = safeArea == null ? new CoverSafeArea.Snapshot(-1, "", rotation, size.x, size.y, screenContext.getResources().getDisplayMetrics().density, false, false, insets, insets, java.util.List.copyOf(cutouts)) : safeArea;
-        CoverSafeArea.Layout layout = CoverSafeArea.contents(screenContext, prefs, area, placement, entryAnchor, homeInset);
+        SafeAreaManager.Snapshot area = safeArea == null ? new SafeAreaManager.Snapshot(-1, "", rotation, size.x, size.y, screenContext.getResources().getDisplayMetrics().density, false, false, insets, insets, java.util.List.copyOf(cutouts)) : safeArea;
+        SafeAreaManager.Layout layout = SafeAreaManager.contents(screenContext, prefs, area, placement, entryAnchor, homeInset);
         placement = layout.dock(); panelEntryPlacement = layout.entry(); cardSafeFrame = layout.card(); statusBox = layout.status(); controlStatusBox = layout.controlStatus();
         hubFrame = layout.hub(); hubAvailableFrame = layout.hubAvailable(); taskFrame = layout.tasks(); panelFrame = new DockGeometry.Box(0, 0, size.x, size.y);
         launcherFrameRotation = rotation;
         return layout.widget();
     }
     private void syncSafeAreaGuide() {
+        SafeAreaManager.geometryChanged();
         for (Runnable observer : java.util.List.copyOf(safeAreaObservers)) { main.removeCallbacks(observer); main.post(observer); }
         boolean show = prefs != null && (prefs.safeAreaGuides() || safeAreaCalibration != null && safeAreaCalibration.editing());
         if (!show || safeArea == null || windows == null || dock == null) { removeSafeAreaGuide(); return; }
         if (safeAreaGuide == null) {
             safeAreaGuide = new SafeAreaGuideView(screenContext);
-            WindowManager.LayoutParams params = parameters(new DockGeometry.Box(0, 0, safeArea.width(), safeArea.height()));
+            WindowManager.LayoutParams params = parameters(safeArea.rawFrame());
             params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE; params.setTitle("外屏安全区辅助线");
             windows.addView(safeAreaGuide, params);
         }
@@ -919,13 +917,13 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private void nativeHostArea(Display target, DockGeometry.Box bounds) {
         NativeHostArea next = null;
         if (target != null && target.getDisplayId() != Display.DEFAULT_DISPLAY && target.getState() == Display.STATE_ON) {
-            Point size = Displays.size(target); float density = createDisplayContext(target).getResources().getDisplayMetrics().density;
+            Point size = SafeAreaManager.rawDisplaySize(target); float density = createDisplayContext(target).getResources().getDisplayMetrics().density;
             // Foreground loss is not a geometry change. Keep this display session's
             // measured origin until a new measurement or a real lifecycle boundary.
             NativeHostArea old = nativeHostArea;
-            if (old != null && old.displayId == target.getDisplayId() && old.rotation == target.getRotation() && old.width == size.x && old.height == size.y && old.density == density) next = old;
+            if (old != null && old.displayId == target.getDisplayId() && old.rotation == SafeAreaManager.rotation(target) && old.width == size.x && old.height == size.y && old.density == density) next = old;
             if (bounds != null && bounds.width() > 0 && bounds.height() > 0 && bounds.x() >= 0 && bounds.y() >= 0 && bounds.right() <= size.x && bounds.bottom() <= size.y) {
-                next = new NativeHostArea(target.getDisplayId(), target.getRotation(), size.x, size.y, density, bounds);
+                next = new NativeHostArea(target.getDisplayId(), SafeAreaManager.rotation(target), size.x, size.y, density, bounds);
             }
         }
         if (java.util.Objects.equals(nativeHostArea, next)) return;
@@ -933,8 +931,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     DockGeometry.Box nativeHostBounds(Display target) {
         NativeHostArea area = nativeHostArea;
-        if (area == null || target == null || target.getState() != Display.STATE_ON || area.displayId != target.getDisplayId() || area.rotation != target.getRotation()) return null;
-        Point size = Displays.size(target); float density = createDisplayContext(target).getResources().getDisplayMetrics().density;
+        if (area == null || target == null || target.getState() != Display.STATE_ON || area.displayId != target.getDisplayId() || area.rotation != SafeAreaManager.rotation(target)) return null;
+        Point size = SafeAreaManager.rawDisplaySize(target); float density = createDisplayContext(target).getResources().getDisplayMetrics().density;
         return area.width == size.x && area.height == size.y && area.density == density ? area.bounds : null;
     }
     boolean deferNativeCardUpdate(Display target) {
@@ -1162,12 +1160,12 @@ public final class CoverService extends AccessibilityService implements DisplayM
         windows.addView(panelHost, layout);
     }
     private static CoverWindowInsets.Geometry windowGeometry(Display target, Point size, float density) {
-        return new CoverWindowInsets.Geometry(target.getDisplayId(), target.getRotation(), size.x, size.y, density, String.valueOf(target.getCutout()));
+        return new CoverWindowInsets.Geometry(target.getDisplayId(), SafeAreaManager.rotation(target), size.x, size.y, density, String.valueOf(SafeAreaManager.cutout(target)));
     }
     private android.view.WindowInsets readMaximumInsets(WindowManager metrics) {
         long now = android.os.SystemClock.elapsedRealtime();
         try {
-            android.view.WindowMetrics maximum = metrics.getMaximumWindowMetrics(); android.view.WindowInsets insets = maximum.getWindowInsets();
+            android.view.WindowMetrics maximum = SafeAreaManager.maximumWindowMetrics(metrics); android.view.WindowInsets insets = maximum.getWindowInsets();
             entryWindowMetrics = now + "ms（开机后）, bounds=" + maximum.getBounds() + ", navigationVisible=" + insets.isVisible(android.view.WindowInsets.Type.navigationBars())
                 + ", cutout=" + insets.getDisplayCutout() + ", 原始边衬=mandatory=" + insets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures()) + ", navigation=" + insets.getInsets(android.view.WindowInsets.Type.navigationBars());
             return insets;
@@ -1175,11 +1173,11 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private record PanelInsetsSample(android.view.WindowInsets insets, long revision) { }
     private void observePanelInsets(View host) {
-        CoverWindowInsets.Geometry mounted = windowGeometry(display, Displays.size(display), screenContext.getResources().getDisplayMetrics().density);
+        CoverWindowInsets.Geometry mounted = windowGeometry(display, SafeAreaManager.rawDisplaySize(display), screenContext.getResources().getDisplayMetrics().density);
         PanelInsetsSample[] pending = {null};
         host.setOnApplyWindowInsetsListener((view, insets) -> {
             Display selected = prefs == null ? null : Displays.selected(this, prefs);
-            if (host == panelHost && selected != null && windows != null && mounted.equals(windowGeometry(selected, Displays.size(selected), createDisplayContext(selected).getResources().getDisplayMetrics().density))) {
+            if (host == panelHost && selected != null && windows != null && mounted.equals(windowGeometry(selected, SafeAreaManager.rawDisplaySize(selected), createDisplayContext(selected).getResources().getDisplayMetrics().density))) {
                 // A fresh dispatch is evidence; getRootWindowInsets() on a layout-only
                 // callback may still be the old value from an invisible host.
                 long before = coverWindowInsets.sampleRevision();
@@ -1199,8 +1197,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (!host.isAttachedToWindow() || host.getWidth() <= 0 || host.getHeight() <= 0) return false;
         Display selected = Displays.selected(this, prefs);
         if (selected == null || selected.getDisplayId() == Display.DEFAULT_DISPLAY || selected.getState() != Display.STATE_ON || getSystemService(KeyguardManager.class).isKeyguardLocked()) return true;
-        Point size = Displays.size(selected); float density = createDisplayContext(selected).getResources().getDisplayMetrics().density;
-        int[] origin = new int[2]; host.getLocationOnScreen(origin);
+        Point size = SafeAreaManager.rawDisplaySize(selected); float density = createDisplayContext(selected).getResources().getDisplayMetrics().density;
+        int[] origin = new int[2]; SafeAreaManager.screenLocation(host, origin);
         DockGeometry.Box frame = new DockGeometry.Box(origin[0], origin[1], host.getWidth(), host.getHeight());
         if (coverWindowInsets.observe(mounted, windowGeometry(selected, size, density), host.getDisplay() == null ? -1 : host.getDisplay().getDisplayId(), host.getResources().getDisplayMetrics().density, frame, sample.insets(), sample.revision())) scheduleDisplay();
         return frame.equals(new DockGeometry.Box(0, 0, size.x, size.y));
@@ -1316,7 +1314,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (automaticRotation != null) automaticRotation.afterCurrent(release); else release.run();
     }
     void toggleRotation() {
-        if (rotationAutomatic()) lockRotation(display.getRotation());
+        if (rotationAutomatic()) lockRotation(SafeAreaManager.rotation(display));
         else if (automaticRotation == null || !automaticRotation.start()) message("自动旋转需要外屏、方向传感器与 Shizuku");
         else message("自动旋转已开启，以当前握持方向为基准");
         if (panels != null) panels.updateStates();
@@ -1873,7 +1871,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         cancelEntryGeometryCapture();
         // Keep a validated sample through same-geometry remounts, otherwise max/actual
         // differences would repeatedly recreate an open panel. resolve rejects new geometry.
-        if (!keepNativeGeometry) { coverWindowInsets.reset(); safeArea = null; }
+        if (!keepNativeGeometry) { coverWindowInsets.reset(); safeArea = null; SafeAreaManager.geometryChanged(); }
         locationGeneration++;
         if (!keepNativeGeometry) invalidateForegroundQuery();
         removeDockHandle(false); dockHandleBox = null; dockHandlePositions = null;
@@ -2235,8 +2233,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         return launcherContentBounds(target, false);
     }
     DockGeometry.Box launcherContentBounds(int target, boolean available) {
-        if (display == null || display.getDisplayId() != target || launcherFrameRotation != display.getRotation() || panelFrame == null) return null;
-        Point size = Displays.size(display);
+        if (display == null || display.getDisplayId() != target || launcherFrameRotation != SafeAreaManager.rotation(display) || panelFrame == null) return null;
+        Point size = SafeAreaManager.rawDisplaySize(display);
         return panelFrame.width() == size.x && panelFrame.height() == size.y ? available && hubAvailableFrame != null ? hubAvailableFrame : hubFrame : null;
     }
     boolean launcherSurface(String operation, int target) {
@@ -2377,7 +2375,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         writer.println("Launcher entry: hostFocused=" + launcherHostFocused + ", cardVisible=" + (display != null && CoverApp.launcherWidgets(this).visible(display.getDisplayId())) + ", pending=" + launcherEntryPending + ", exitPending=" + launcherExitPending + ", sceneResolved=" + foregroundSceneResolved + ", hub=" + (hub != null) + ", " + (dock == null ? "dock=absent" : dock.launcherEntryDiagnostics()));
         writer.println("Launcher visibility transitions (memory only, no application identity):");
         for (String transition : launcherVisibilityTransitions) writer.println("  " + transition);
-        writer.println("Launcher geometry: rotation=" + (display == null ? -1 : display.getRotation()) + ", frame=" + hubFrame);
+        writer.println("Launcher geometry: rotation=" + (display == null ? -1 : SafeAreaManager.rotation(display)) + ", frame=" + hubFrame);
         writer.println("Native host geometry: " + nativeHostArea);
         writer.println("Native geometry update deferred: " + nativeGeometryDeferred);
         writer.println("External input: " + CoverApp.inputs(this).status + ", keyboard=" + CoverApp.inputs(this).keyboardAvailable() + ", devices=" + CoverApp.inputs(this).connected().size() + ", nativeHost=" + nativeHostVisible + ", nativeCard=" + CoverApp.launcherWidgets(this).inputCard());

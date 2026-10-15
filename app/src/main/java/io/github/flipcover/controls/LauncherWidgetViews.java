@@ -80,11 +80,11 @@ final class LauncherWidgetViews {
     }
     RemoteViews render() {
         if (Build.VERSION.SDK_INT < 31) return message(context, "原生启动器卡片需要 Android 12 或更新版本");
-        boolean hubLayout = display.getRotation() != android.view.Surface.ROTATION_0;
+        boolean hubLayout = SafeAreaManager.rotation(display) != android.view.Surface.ROTATION_0;
         WidgetSafeArea.Frame frame = hubLayout ? CoverApp.widgets(context).launcherFrame(widget) : CoverApp.widgets(context).frame(widget);
         float density = context.getResources().getDisplayMetrics().density; boolean right = prefs.handSide().equals("right");
         int topSpace = 0;
-        if (display.getRotation() == android.view.Surface.ROTATION_180) {
+        if (SafeAreaManager.rotation(display) == android.view.Surface.ROTATION_180) {
             WidgetSafeArea.Frame available = CoverApp.widgets(context).launcherFrame(widget, true);
             topSpace = Math.max(0, Ui.dp(context, frame.top()) - Ui.dp(context, available.top())); frame = available;
         }
@@ -200,7 +200,7 @@ final class LauncherWidgetViews {
     @androidx.annotation.RequiresApi(31)
     private void renderRail(RemoteViews view) {
         view.setViewVisibility(R.id.launcher_rail, View.VISIBLE);
-        int padding = Ui.dp(context, AppLauncherStyle.RAIL_FRAME_PADDING); boolean hubLayout = display.getRotation() != android.view.Surface.ROTATION_0;
+        int padding = Ui.dp(context, AppLauncherStyle.RAIL_FRAME_PADDING); boolean hubLayout = SafeAreaManager.rotation(display) != android.view.Surface.ROTATION_0;
         view.setViewPadding(R.id.launcher_rail, hubLayout ? 0 : padding, hubLayout ? 0 : padding, hubLayout ? 0 : padding, hubLayout ? 0 : padding);
         List<String> favorites = prefs.actions("favorites");
         float height = AppLauncherStyle.RAIL_CELL;

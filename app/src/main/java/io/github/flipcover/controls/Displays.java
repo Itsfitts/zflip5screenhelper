@@ -33,10 +33,10 @@ public final class Displays {
             if (display.getDisplayId() == 0 || !display.isValid() || (display.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
             // Samsung may double getRealSize() inside a compatibility-scaled Activity.
             // Identify hardware by its physical mode, never by an app's adjusted geometry.
-            Display.Mode mode = display.getMode();
-            if (!coverSize(mode.getPhysicalWidth(), mode.getPhysicalHeight())) continue;
+            Point mode = SafeAreaManager.physicalSize(display);
+            if (!coverSize(mode.x, mode.y)) continue;
             String name = display.getName().toLowerCase(java.util.Locale.ROOT);
-            int score = display.getCutout() != null ? 2 : 0;
+            int score = SafeAreaManager.cutout(display) != null ? 2 : 0;
             if (name.contains("built-in") || name.contains("内置") || name.contains("cover")) score++;
             if (score > bestScore) { best = display; bestScore = score; }
         }
@@ -47,9 +47,8 @@ public final class Displays {
         float ratio = width / (float) height;
         return ratio >= .7 && ratio <= 1.4 && (long) width * height <= 1_500_000;
     }
-    public static Point size(Display display) { Point size = new Point(); display.getRealSize(size); return size; }
     public static String describe(Display display) {
-        Point size = size(display);
-        return "屏幕 " + display.getDisplayId() + " · " + size.x + "×" + size.y + " · " + display.getRotation() * 90 + "° · " + display.getName();
+        Point size = SafeAreaManager.rawDisplaySize(display);
+        return "屏幕 " + display.getDisplayId() + " · " + size.x + "×" + size.y + " · " + SafeAreaManager.rotation(display) * 90 + "° · " + display.getName();
     }
 }

@@ -41,20 +41,21 @@ final class SafeAreaSettings extends LinearLayout {
     private LinearLayout group() { LinearLayout group = SettingsUi.group(activity); SettingsUi.add(this, group); return group; }
     private TextView label(LinearLayout parent, String text, int color) { TextView view = SettingsUi.text(activity, text, 14, color); int gap = Ui.dp(activity, 14); view.setPadding(gap, Ui.dp(activity, 10), gap, Ui.dp(activity, 10)); parent.addView(view); return view; }
     private Button button(LinearLayout parent, int text, String tag, Runnable click) { Button view = SettingsUi.button(activity, get(text), click); view.setTag(tag); parent.addView(view); return view; }
-    private CoverSafeArea.Snapshot current() { CoverService service = CoverService.instance; return service == null ? null : service.safeAreaSnapshot(); }
+    private SafeAreaManager.Snapshot current() { CoverService service = CoverService.instance; return service == null ? null : service.safeAreaSnapshot(); }
     private void render() {
         removeAllViews(); boolean editing = session != null && session.editing(), busy = session != null && session.active();
         label(this, get(R.string.safe_area_description), SettingsUi.MUTED);
         LinearLayout directions = group(); label(directions, get(R.string.safe_area_direction), SettingsUi.TEXT);
-        // Two rows remain readable on the small cover and at large system font sizes.
-        for (int row = 0; row < 2; row++) {
-            LinearLayout pair = SettingsUi.row(activity); directions.addView(pair);
-            for (int column = 0; column < 2; column++) {
-                int angle = row * 2 + column; Button tab = SettingsUi.button(activity, angle * 90 + "°" + (angle == rotation ? " ✓" : ""), () -> { rotation = angle; render(); });
-                tab.setTag("safe-area-direction-" + angle); tab.setSelected(angle == rotation); tab.setEnabled(!busy); tab.setStateDescription(angle == rotation ? "已选择" : "未选择"); SettingsUi.weighted(pair, tab);
-            }
+        android.widget.HorizontalScrollView strip = new android.widget.HorizontalScrollView(activity); strip.setHorizontalScrollBarEnabled(false); strip.setFillViewport(true); directions.addView(strip);
+        LinearLayout tabs = SettingsUi.row(activity); tabs.setTag("safe-area-directions"); strip.addView(tabs, new android.widget.HorizontalScrollView.LayoutParams(-2, -2));
+        for (int index = 0; index < 4; index++) {
+            int angle = index; String title = angle * 90 + "°" + (angle == rotation ? " ✓" : "");
+            Button tab = SettingsUi.button(activity, title, () -> { rotation = angle; render(); }); tab.setSingleLine();
+            int minimum = Math.max(Ui.dp(activity, 48), (int) Math.ceil(tab.getPaint().measureText(title)) + Ui.dp(activity, 16));
+            tab.setMinWidth(minimum); tab.setPadding(Ui.dp(activity, 8), 0, Ui.dp(activity, 8), 0);
+            tab.setTag("safe-area-direction-" + angle); tab.setSelected(angle == rotation); tab.setEnabled(!busy); tab.setStateDescription(angle == rotation ? "已选择" : "未选择"); tabs.addView(tab, new LinearLayout.LayoutParams(minimum, -2, 1));
         }
-        CoverSafeArea.Snapshot area = current(); SafeAreaGeometry.Profile profile = prefs.safeArea(rotation);
+        SafeAreaManager.Snapshot area = current(); SafeAreaGeometry.Profile profile = prefs.safeArea(rotation);
         if (area != null && area.rotation() == rotation) {
             preview = new Preview(activity); preview.geometry(area); group().addView(preview, new LinearLayout.LayoutParams(-1, Ui.dp(activity, 120)));
             label(this, get(R.string.safe_area_preview), SettingsUi.MUTED);
@@ -80,7 +81,7 @@ final class SafeAreaSettings extends LinearLayout {
         confirmation.mode(prefs.safeArea(rotation) != null && prefs.safeArea(rotation).manual(), manual -> {
                 if (!manual) { if (!prefs.safeAreaMode(rotation, false)) failure(); render(); }
                 else {
-                    SafeAreaGeometry.Profile saved = prefs.safeArea(rotation); CoverSafeArea.Snapshot area = current();
+                    SafeAreaGeometry.Profile saved = prefs.safeArea(rotation); SafeAreaManager.Snapshot area = current();
                     if (saved == null || area == null || !saved.display().equals(area.identity())) begin();
                     else { if (!prefs.safeAreaMode(rotation, true)) failure(); render(); }
                 }
@@ -89,17 +90,17 @@ final class SafeAreaSettings extends LinearLayout {
     private void begin() {
         if (session == null || session.active()) return;
         Display target = Displays.selected(activity, prefs); if (target == null) { failure(); return; }
-        boolean rotate = target.getRotation() != rotation;
+        boolean rotate = SafeAreaManager.rotation(target) != rotation;
         confirmation.show(get(rotate ? R.string.safe_area_switch_title : R.string.safe_area_lock_title), rotate ? activity.getString(R.string.safe_area_switch_message, rotation * 90) : get(R.string.safe_area_lock_message), get(R.string.safe_area_continue), () -> session.begin(rotation));
     }
     private void renderEditor() {
         label(this, get(R.string.safe_area_edit_help), SettingsUi.MUTED); LinearLayout edges = group();
         int[] labels = {R.string.safe_area_left, R.string.safe_area_top, R.string.safe_area_right, R.string.safe_area_bottom};
         for (int i = 0; i < 4; i++) {
-            int index = i, value = edgeValues()[i]; SafeAreaGeometry.Profile draft = session.draft(); int max = Math.max(0, (i % 2 == 0 ? draft.width() : draft.height()) - 160);
+            int index = i, value = edgeValues()[i]; SafeAreaGeometry.Profile draft = session.draft(); int extent = i % 2 == 0 ? draft.width() : draft.height(); int max = Math.max(0, extent - 160);
             LinearLayout block = SettingsUi.column(activity); block.setPadding(Ui.dp(activity, 14), Ui.dp(activity, 8), Ui.dp(activity, 14), 0); edges.addView(block);
             TextView label = label(block, get(labels[i]) + " · " + value + " px", SettingsUi.ACCENT); label.setPadding(0, 0, 0, 0);
-            SettingsUi.Slider slider = new SettingsUi.Slider(activity, 0, max, value, number -> { label.setText(get(labels[index]) + " · " + number + " px"); }, number -> { changeEdge(index, number); refreshControls(); });
+            SettingsUi.Slider slider = new SettingsUi.Slider(activity, -extent, max, value, number -> { label.setText(get(labels[index]) + " · " + number + " px"); }, number -> { changeEdge(index, number); refreshControls(); });
             slider.setTag("safe-area-edge-" + i); slider.setContentDescription(get(labels[i]) + "，单位 px"); block.addView(slider, new LinearLayout.LayoutParams(-1, Ui.dp(activity, 48)));
             LinearLayout controls = SettingsUi.row(activity); block.addView(controls);
             Button minus = SettingsUi.button(activity, "−1", () -> { changeEdge(index, edgeValues()[index] - 1); refreshControls(); }); minus.setContentDescription(get(labels[i]) + "减少 1 px"); SettingsUi.weighted(controls, minus);
@@ -111,20 +112,20 @@ final class SafeAreaSettings extends LinearLayout {
         button(actions, R.string.safe_area_cancel, "safe-area-cancel", this::cancel);
         feedback = label(this, session.message(), SettingsUi.MUTED); feedback.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);
     }
-    private int[] edgeValues() { SafeAreaGeometry.Edges e = session.draft().edges(); return new int[]{e.left(), e.top(), e.right(), e.bottom()}; }
-    private void refreshControls() { if (session != null && session.editing()) { int[] values = edgeValues(); for (int i = 0; i < 4; i++) { SettingsUi.Slider slider = findViewWithTag("safe-area-edge-" + i); if (slider != null) slider.setProgress(values[i]); } } }
+    private int[] edgeValues() { SafeAreaGeometry.Edges e = session.draft().offsets(); return new int[]{e.left(), e.top(), e.right(), e.bottom()}; }
+    private SafeAreaGeometry.Edges absoluteEdges(int[] values) { SafeAreaGeometry.Edges base = session.draft().reference(); return new SafeAreaGeometry.Edges(values[0], values[1], values[2], values[3]).plus(base == null ? SafeAreaGeometry.Edges.NONE : base); }
+    private void refreshControls() { if (session != null && session.editing()) { int[] values = edgeValues(); for (int i = 0; i < 4; i++) { SettingsUi.Slider slider = findViewWithTag("safe-area-edge-" + i); if (slider != null) slider.committedValue(values[i]); } } }
     private boolean changeEdge(int edge, int value) {
         if (session == null || !session.editing()) return false;
+        if (!session.draft().acceptsOffset(edge, value)) { if (feedback != null) feedback.setText(get(R.string.safe_area_invalid)); return false; }
         int[] values = edgeValues(); values[edge] = value;
-        if (!session.update(new SafeAreaGeometry.Edges(values[0], values[1], values[2], values[3]), edge)) { if (feedback != null) feedback.setText(get(R.string.safe_area_invalid)); return false; }
+        if (!session.update(absoluteEdges(values), edge)) { if (feedback != null) feedback.setText(get(R.string.safe_area_invalid)); return false; }
         if (preview != null && current() != null) preview.geometry(current());
         activity.getWindow().getDecorView().requestApplyInsets(); return true;
     }
     private void inputEdge(int edge, String title) {
         confirmation.number(title + " (px)", edgeValues()[edge], number -> {
             if (!session.editing()) return false;
-            int[] values = edgeValues(); values[edge] = number; SafeAreaGeometry.Profile draft = session.draft();
-            if (!new SafeAreaGeometry.Edges(values[0], values[1], values[2], values[3]).valid(draft.width(), draft.height())) return false;
             if (!changeEdge(edge, number)) return false; refreshControls(); return true;
         });
     }
@@ -132,9 +133,9 @@ final class SafeAreaSettings extends LinearLayout {
     private final class Preview extends View {
         private final SafeAreaGuideView guide;
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private CoverSafeArea.Snapshot area;
+        private SafeAreaManager.Snapshot area;
         Preview(android.content.Context context) { super(context); guide = new SafeAreaGuideView(context); setContentDescription(get(R.string.safe_area_preview)); }
-        void geometry(CoverSafeArea.Snapshot value) { area = value; CoverService service = CoverService.instance; guide.geometry(value, service == null ? null : service.safeAreaDock(), session == null ? -1 : session.selectedEdge()); invalidate(); }
+        void geometry(SafeAreaManager.Snapshot value) { area = value; CoverService service = CoverService.instance; guide.geometry(value, service == null ? null : service.safeAreaDock(), session == null ? -1 : session.selectedEdge()); invalidate(); }
         @Override protected void onDraw(Canvas canvas) {
             if (area == null) return;
             float padding = Ui.dp(activity, 8), scale = Math.min((getWidth() - padding * 2) / area.width(), (getHeight() - padding * 2) / area.height());

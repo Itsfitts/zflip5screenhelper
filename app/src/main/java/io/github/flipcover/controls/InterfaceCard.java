@@ -76,7 +76,7 @@ final class InterfaceCard extends FrameLayout {
         setTag("interface-card:" + definition.id()); setMotionEventSplittingEnabled(false); setClipChildren(true);
         content.setBackgroundColor(Color.TRANSPARENT); addView(content, new LayoutParams(-1, -1)); fallback();
         status = definition.showStatusBar() ? new StatusBarView(context, prefs, true) : null;
-        if (status != null) { status.setTag("panel-status"); addView(status, new LayoutParams(-1, status.heightPixels())); statusBounds(new DockGeometry.Box(0, 0, context.getResources().getDisplayMetrics().widthPixels, status.heightPixels())); }
+        if (status != null) { status.setTag("panel-status"); addView(status, new LayoutParams(-1, status.heightPixels())); statusBounds(new DockGeometry.Box(0, 0, SafeAreaManager.contentBounds(context).width(), status.heightPixels())); }
     }
     Definition definition() { return definition; }
     StatusBarView statusBar() { return status; }
@@ -205,8 +205,8 @@ final class InterfaceCard extends FrameLayout {
     void beginExit(int edge, float extent) {
         if (controlMotion != null) controlMotion.reset(); controlEntryX = controlEntryY = 0; pauseContent.run(); interactive(false); restingX = getTranslationX(); restingY = getTranslationY(); exitStart = position(this, edge); restingClip = getClipBounds();
         restingVisual.set(visual); beginExitCrop(); exitExtent = viewport == null ? extent : horizontal(edge) ? viewport.width() : viewport.height();
-        float height = getHeight() > 0 ? getHeight() : getResources().getDisplayMetrics().heightPixels;
-        int width = getWidth() > 0 ? getWidth() : getResources().getDisplayMetrics().widthPixels;
+        float height = getHeight() > 0 ? getHeight() : SafeAreaManager.contentBounds(getContext()).height();
+        int width = getWidth() > 0 ? getWidth() : SafeAreaManager.contentBounds(getContext()).width();
         Rect slice = new Rect(Math.max(0, Math.round(-restingX)), Math.max(0, Math.round(-restingY)), Math.max(0, Math.round(Math.min(width, (viewport == null ? width : viewport.width()) - restingX))), Math.max(0, Math.round(Math.min(height, (viewport == null ? height : viewport.height()) - restingY))));
         if (!visual.isEmpty()) { visual.round(outlineBox); slice.intersect(outlineBox); }
         if (restingClip != null) slice.intersect(restingClip); setClipBounds(slice);

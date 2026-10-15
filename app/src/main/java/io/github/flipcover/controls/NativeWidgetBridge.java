@@ -197,7 +197,7 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
     void watchDraft(int id) { AppWidgetProviderInfo info = info(id); if (info != null && views.get(id) == null) views.put(id, (RelayView) host.createView(context, id, info)); }
     void trim() { for (int i = 0; i < views.size(); i++) views.valueAt(i).latest = null; inputViews = null; inputViewsId = -1; if (CoverService.instance != null) CoverService.instance.nativeInputChanged(); restoreBeforePublish = true; }
     void safeArea(Display display, int width, int height, DockGeometry.Box safe) {
-        ChromeArea next = display == null || safe == null ? null : new ChromeArea(display.getDisplayId(), display.getRotation(), width, height, safe);
+        ChromeArea next = display == null || safe == null ? null : new ChromeArea(display.getDisplayId(), SafeAreaManager.rotation(display), width, height, safe);
         if (java.util.Objects.equals(chromeArea, next)) return;
         chromeArea = next; geometryChanged();
     }
@@ -251,10 +251,10 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
     }
     private SizeF canvasSize(int outer, boolean launcher) {
         Bundle options = manager.getAppWidgetOptions(outer); Display display = Displays.selected(context, prefs); float maxWidth = 352, maxHeight = 339;
-        if (display != null) { Point pixels = Displays.size(display); float density = context.createDisplayContext(display).getResources().getDisplayMetrics().density; maxWidth = pixels.x / density; maxHeight = pixels.y / density; }
+        if (display != null) { Point pixels = SafeAreaManager.rawDisplaySize(display); float density = context.createDisplayContext(display).getResources().getDisplayMetrics().density; maxWidth = pixels.x / density; maxHeight = pixels.y / density; }
         int width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, (int) maxWidth), height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, (int) maxHeight);
         if (maxWidth > maxHeight) { width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, width); height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, height); }
-        boolean quarterTurn = launcher && display != null && (display.getRotation() == android.view.Surface.ROTATION_90 || display.getRotation() == android.view.Surface.ROTATION_270);
+        boolean quarterTurn = launcher && display != null && (SafeAreaManager.rotation(display) == android.view.Surface.ROTATION_90 || SafeAreaManager.rotation(display) == android.view.Surface.ROTATION_270);
         WidgetSafeArea.Frame canvas = WidgetSafeArea.canvas(width, height, maxWidth, maxHeight, quarterTurn);
         return new SizeF(canvas.width(), canvas.height());
     }
@@ -269,22 +269,13 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
     private WidgetSafeArea.Frame frame(int outer, DockGeometry.Box launcherBounds, boolean launcher) {
         SizeF canvas = canvasSize(outer, launcher); Display display = Displays.selected(context, prefs);
         if (display == null || Build.VERSION.SDK_INT < 31) return new WidgetSafeArea.Frame(0, 0, canvas.getWidth(), canvas.getHeight());
-        Point pixels = Displays.size(display); float density = context.createDisplayContext(display).getResources().getDisplayMetrics().density;
+        Point pixels = SafeAreaManager.rawDisplaySize(display); float density = context.createDisplayContext(display).getResources().getDisplayMetrics().density;
         DockGeometry.Box safe = null;
-        if (chromeArea != null && chromeArea.displayId == display.getDisplayId() && chromeArea.rotation == display.getRotation() && chromeArea.width == pixels.x && chromeArea.height == pixels.y) safe = chromeArea.safe;
-        // When our overlays are absent, the native host owns system-bar insets. The
-        // physical cutout is still authoritative; never invent a camera-side margin.
-        if (safe == null && display.getCutout() != null) {
-            android.view.DisplayCutout cutout = display.getCutout(); int left = cutout.getSafeInsetLeft(), top = cutout.getSafeInsetTop();
-            safe = new DockGeometry.Box(left, top, Math.max(0, pixels.x - left - cutout.getSafeInsetRight()), Math.max(0, pixels.y - top - cutout.getSafeInsetBottom()));
-        }
-        if (chromeArea == null || chromeArea.displayId != display.getDisplayId() || chromeArea.rotation != display.getRotation() || chromeArea.width != pixels.x || chromeArea.height != pixels.y) {
-            CoverSafeArea.Snapshot area = CoverSafeArea.resolve(context.createDisplayContext(display), prefs, display, pixels, CoverSafeArea.cutoutInsets(display.getCutout()), null);
-            if (area.manual()) safe = safe == null ? area.frame() : safe.intersect(area.frame());
-        }
+        if (chromeArea != null && chromeArea.displayId == display.getDisplayId() && chromeArea.rotation == SafeAreaManager.rotation(display) && chromeArea.width == pixels.x && chromeArea.height == pixels.y) safe = chromeArea.safe;
+        safe = SafeAreaManager.nativeContent(context.createDisplayContext(display), prefs, display, pixels, safe);
         CoverService service = CoverService.instance;
         DockGeometry.Box host = service == null ? null : service.nativeHostBounds(display);
-        return WidgetSafeArea.fit(canvas.getWidth(), canvas.getHeight(), pixels.x, pixels.y, density, launcherBounds == null ? safe : launcherBounds, host);
+        return SafeAreaManager.nativeFrame(canvas.getWidth(), canvas.getHeight(), pixels, density, launcherBounds == null ? safe : launcherBounds, host);
     }
     SizeF size(int outer) { WidgetSafeArea.Frame frame = frame(outer); return new SizeF(Math.max(1, frame.width()), Math.max(1, frame.height())); }
     SizeF size(int outer, int width, int height) { SizeF full = size(outer); return new SizeF(full.getWidth() * width / 4, full.getHeight() * height / 4); }

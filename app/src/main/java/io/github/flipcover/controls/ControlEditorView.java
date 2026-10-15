@@ -149,7 +149,7 @@ final class ControlEditorView extends FrameLayout {
             default: return true;
         }
     }
-    private Rect rect(View view) { int[] origin = new int[2], location = new int[2]; getLocationOnScreen(origin); view.getLocationOnScreen(location); return new Rect(location[0] - origin[0], location[1] - origin[1], location[0] - origin[0] + view.getWidth(), location[1] - origin[1] + view.getHeight()); }
+    private Rect rect(View view) { int[] origin = new int[2], location = new int[2]; SafeAreaManager.screenLocation(this, origin); SafeAreaManager.screenLocation(view, location); return new Rect(location[0] - origin[0], location[1] - origin[1], location[0] - origin[0] + view.getWidth(), location[1] - origin[1] + view.getHeight()); }
     private void locateDrag() {
         if (drag == null) return; int before = target; Rect selectedArea = rect(selectedScroll); boolean overSelected = selectedArea.contains((int) dragX, (int) dragY);
         removeTarget = drag.selected() && rect(candidates == null ? expandSlot : candidates).contains((int) dragX, (int) dragY); target = -1; scrollStep = 0;

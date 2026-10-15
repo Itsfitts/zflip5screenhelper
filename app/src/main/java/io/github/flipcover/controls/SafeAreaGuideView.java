@@ -10,12 +10,12 @@ import android.view.View;
 final class SafeAreaGuideView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path contour = new Path();
-    private CoverSafeArea.Snapshot area;
+    private SafeAreaManager.Snapshot area;
     private int edge = -1;
     private float strokeScale = 1;
     void strokeScale(float scale) { strokeScale = scale; }
     SafeAreaGuideView(Context context) { super(context); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); setFocusable(false); }
-    void geometry(CoverSafeArea.Snapshot value, DockGeometry.Placement dock, int selectedEdge) {
+    void geometry(SafeAreaManager.Snapshot value, DockGeometry.Placement dock, int selectedEdge) {
         area = value; edge = selectedEdge; contour.reset(); add(contour, area.frame());
         // Automatic mode retains the legacy notch-side Dock lane as part of the usable contour.
         if (!area.manual() && dock != null) { Path lane = new Path(); add(lane, dock.touch()); contour.op(lane, Path.Op.UNION); }

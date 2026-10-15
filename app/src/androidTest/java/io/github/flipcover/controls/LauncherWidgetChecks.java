@@ -241,7 +241,7 @@ final class LauncherWidgetChecks {
         CoverService previous = CoverService.instance; CoverService[] owner = {null}; NativeWidgetBridge widgets = CoverApp.widgets(context);
         AppWidgetManager manager = AppWidgetManager.getInstance(context); Bundle original = manager.getAppWidgetOptions(widget);
         int oldWidth = card.getLayoutParams().width, oldHeight = card.getLayoutParams().height;
-        android.graphics.Point pixels = Displays.size(target); float density = context.createDisplayContext(target).getResources().getDisplayMetrics().density;
+        android.graphics.Point pixels = SafeAreaManager.rawDisplaySize(target); float density = context.createDisplayContext(target).getResources().getDisplayMetrics().density;
         DockGeometry.Box hostArea = new DockGeometry.Box(0, 66, pixels.x, pixels.y - 66), safe = new DockGeometry.Box(0, 151, pixels.x, pixels.y - 151);
         java.lang.reflect.Method attach = android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext", Context.class); attach.setAccessible(true);
         java.lang.reflect.Method observed = CoverService.class.getDeclaredMethod("nativeHostArea", android.view.Display.class, DockGeometry.Box.class); observed.setAccessible(true);
@@ -333,7 +333,7 @@ final class LauncherWidgetChecks {
     }
     private void centeredNativeLayout(Context context, Prefs prefs, int widget, android.view.Display target, CoverService owner) throws Exception {
         require(target.getRotation() == Surface.ROTATION_180, "centering fixture uses the actual upside-down display");
-        android.graphics.Point pixels = Displays.size(target); float density = context.createDisplayContext(target).getResources().getDisplayMetrics().density;
+        android.graphics.Point pixels = SafeAreaManager.rawDisplaySize(target); float density = context.createDisplayContext(target).getResources().getDisplayMetrics().density;
         java.lang.reflect.Field area = CoverService.class.getDeclaredField("hubAvailableFrame"); area.setAccessible(true);
         DockGeometry.Box[] centered = {null}; LauncherWidgetBridge bridge = CoverApp.launcherWidgets(context); NativeWidgetBridge widgets = CoverApp.widgets(context);
         main(() -> {
@@ -667,7 +667,7 @@ final class LauncherWidgetChecks {
                 // Reproduce Samsung retaining the natural full-display dimensions
                 // while the actual native host follows the rotated display.
                 main(() -> {
-                    android.graphics.Point pixels = Displays.size(display.getDisplay());
+                    android.graphics.Point pixels = SafeAreaManager.rawDisplaySize(display.getDisplay());
                     float density = context.createDisplayContext(display.getDisplay()).getResources().getDisplayMetrics().density;
                     Bundle stale = new Bundle();
                     stale.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 360); stale.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 360);

@@ -53,7 +53,9 @@ public final class Prefs {
         try {
             JSONObject value = new JSONObject(data.getString("safe_area_" + rotation, ""));
             SafeAreaGeometry.Edges edges = new SafeAreaGeometry.Edges(value.getInt("left"), value.getInt("top"), value.getInt("right"), value.getInt("bottom"));
-            return new SafeAreaGeometry.Profile(value.getBoolean("manual"), value.getInt("width"), value.getInt("height"), value.getString("display"), edges);
+            JSONObject origin = value.optJSONObject("reference");
+            SafeAreaGeometry.Edges reference = origin == null ? null : new SafeAreaGeometry.Edges(origin.getInt("left"), origin.getInt("top"), origin.getInt("right"), origin.getInt("bottom"));
+            return new SafeAreaGeometry.Profile(value.getBoolean("manual"), value.getInt("width"), value.getInt("height"), value.getString("display"), edges, reference);
         } catch (JSONException | ClassCastException error) { return null; }
     }
     boolean saveSafeArea(int rotation, SafeAreaGeometry.Profile profile) {
@@ -62,12 +64,13 @@ public final class Prefs {
             SafeAreaGeometry.Edges e = profile.edges();
             JSONObject value = new JSONObject().put("manual", profile.manual()).put("width", profile.width()).put("height", profile.height()).put("display", profile.display())
                 .put("left", e.left()).put("top", e.top()).put("right", e.right()).put("bottom", e.bottom());
+            if (profile.reference() != null) { SafeAreaGeometry.Edges r = profile.reference(); value.put("reference", new JSONObject().put("left", r.left()).put("top", r.top()).put("right", r.right()).put("bottom", r.bottom())); }
             return data.edit().putString("safe_area_" + rotation, value.toString()).commit();
         } catch (JSONException error) { throw new IllegalArgumentException(error); }
     }
     boolean safeAreaMode(int rotation, boolean manual) {
         SafeAreaGeometry.Profile old = safeArea(rotation);
-        return old == null ? !manual : saveSafeArea(rotation, new SafeAreaGeometry.Profile(manual, old.width(), old.height(), old.display(), old.edges()));
+        return old == null ? !manual : saveSafeArea(rotation, new SafeAreaGeometry.Profile(manual, old.width(), old.height(), old.display(), old.edges(), old.reference()));
     }
     boolean resetSafeArea(int rotation) {
         SharedPreferences.Editor edit = data.edit();

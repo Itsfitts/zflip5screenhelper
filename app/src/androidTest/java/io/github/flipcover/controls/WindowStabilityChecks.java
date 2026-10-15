@@ -87,7 +87,7 @@ final class WindowStabilityChecks {
         proxy.addView(entry, (WindowManager.LayoutParams) invoke(owner, "panelEntryParameters"));
         StatusBarView status = new StatusBarView(owner.screenContext, prefs); field(owner, "statusBar", status); proxy.addView(status, (WindowManager.LayoutParams) invoke(owner, "statusParameters"));
         ((DockVisibility) field(owner, "dockVisibility")).expandable(true);
-        String key = display.getDisplayId() + ":" + display.getRotation() + ":" + Displays.size(display) + ":" + owner.screenContext.getResources().getDisplayMetrics().density + ":" + display.getCutout();
+        String key = display.getDisplayId() + ":" + display.getRotation() + ":" + SafeAreaManager.rawDisplaySize(display) + ":" + owner.screenContext.getResources().getDisplayMetrics().density + ":" + display.getCutout();
         field(owner, "displaySignature", key); field(owner, "signature", "initial-fixture");
     }
     private void startArrow() {
@@ -174,7 +174,7 @@ final class WindowStabilityChecks {
     private Object geometry(String method) {
         try {
             var target = CoverService.class.getDeclaredMethod(method, android.view.Display.class, Point.class, int.class, Insets.class, Insets.class, Insets.class, Insets.class); target.setAccessible(true);
-            return target.invoke(owner, owner.display, Displays.size(owner.display), owner.display.getRotation(), insets.getInsets(WindowInsets.Type.mandatorySystemGestures()), insets.getInsets(WindowInsets.Type.navigationBars()), insets.getInsetsIgnoringVisibility(WindowInsets.Type.navigationBars()), CoverService.contentInsets(insets, owner.display.getCutout()));
+            return target.invoke(owner, owner.display, SafeAreaManager.rawDisplaySize(owner.display), owner.display.getRotation(), insets.getInsets(WindowInsets.Type.mandatorySystemGestures()), insets.getInsets(WindowInsets.Type.navigationBars()), insets.getInsetsIgnoringVisibility(WindowInsets.Type.navigationBars()), CoverService.contentInsets(insets, owner.display.getCutout()));
         } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
     }
     private void reconcile() { try { var method = CoverService.class.getDeclaredMethod("reconcile", boolean.class); method.setAccessible(true); method.invoke(owner, false); } catch (ReflectiveOperationException error) { throw new AssertionError(error); } }

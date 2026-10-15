@@ -54,11 +54,11 @@ final class SystemAppDisplay {
     }
     static boolean target(Display display, JSONObject request) {
         if (display == null || !display.isValid() || !display.getName().equals(request.optString("displayName"))) return false;
-        Display.Mode mode = display.getMode();
-        return Displays.coverSize(mode.getPhysicalWidth(), mode.getPhysicalHeight()) && mode.getPhysicalWidth() == request.optInt("width") && mode.getPhysicalHeight() == request.optInt("height");
+        android.graphics.Point mode = SafeAreaManager.physicalSize(display);
+        return Displays.coverSize(mode.x, mode.y) && mode.x == request.optInt("width") && mode.y == request.optInt("height");
     }
     static JSONObject request(String name, Display display) throws Exception {
-        return new JSONObject().put("package", name).put("displayName", display.getName()).put("width", display.getMode().getPhysicalWidth()).put("height", display.getMode().getPhysicalHeight());
+        return new JSONObject().put("package", name).put("displayName", display.getName()).put("width", SafeAreaManager.physicalSize(display).x).put("height", SafeAreaManager.physicalSize(display).y);
     }
     private static String result(boolean ok, String state, String entry) throws Exception {
         return new JSONObject().put("ok", ok).put("message", state).put("output", new JSONObject().put("state", state).put("entry", entry).toString()).toString();

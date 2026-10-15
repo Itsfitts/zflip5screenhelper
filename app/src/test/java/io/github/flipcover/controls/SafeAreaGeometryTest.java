@@ -10,7 +10,7 @@ public class SafeAreaGeometryTest {
         assertTrue(profile.matches("cover", 748, 720)); assertFalse(profile.matches("other", 748, 720)); assertFalse(profile.matches("cover", 1496, 1440)); assertFalse(profile.matches("cover", 720, 748));
     }
     @Test public void invalidAndOverflowingInsetsCannotCollapseTheScreen() {
-        assertFalse(new SafeAreaGeometry.Edges(-1, 0, 0, 0).valid(748, 720));
+        assertFalse(new SafeAreaGeometry.Edges(-749, 0, 0, 0).valid(748, 720));
         assertFalse(new SafeAreaGeometry.Edges(Integer.MAX_VALUE, 0, Integer.MAX_VALUE, 0).valid(748, 720));
         assertFalse(new SafeAreaGeometry.Edges(0, 350, 0, 350).valid(748, 720));
         assertTrue(new SafeAreaGeometry.Edges(12, 14, 16, 18).valid(748, 720));
@@ -39,5 +39,23 @@ public class SafeAreaGeometryTest {
         assertEquals(new DockGeometry.Box(24, 40, 1448, 1268), SafeAreaGeometry.localFrame(safe, 2, 0, 0, 1496, 1440));
         assertEquals(new DockGeometry.Box(24, 0, 1448, 1268), SafeAreaGeometry.localFrame(safe, 2, 0, 40, 1496, 1400));
         assertEquals(new DockGeometry.Box(0, 0, 300, 400), SafeAreaGeometry.localFrame(safe, 1, 20, 30, 300, 400));
+    }
+    @Test public void samsungCompatibilityBoundsDoNotUseTheFontDensityRatio() {
+        var safe = new DockGeometry.Box(0, 0, 748, 654);
+        assertEquals(new DockGeometry.Box(0, 0, 854, 747), SafeAreaGeometry.localFrame(safe, 854f / 748, 822f / 720, 0, 0, 854, 822));
+        var rotated = new DockGeometry.Box(0, 0, 654, 684);
+        assertEquals(new DockGeometry.Box(0, 0, 747, 781), SafeAreaGeometry.localFrame(rotated, 822f / 720, 854f / 748, 0, 0, 822, 854));
+    }
+    @Test public void negativeOffsetsExpandFromAFrozenReferenceAndStopAtThePhysicalScreen() {
+        var base = new SafeAreaGeometry.Edges(0, 0, 0, 96);
+        var absolute = base.plus(new SafeAreaGeometry.Edges(0, 0, 0, -30));
+        assertEquals(66, absolute.bottom());
+        var profile = new SafeAreaGeometry.Profile(true, 748, 720, "cover", absolute, base);
+        assertEquals(-30, profile.offsets().bottom());
+        assertTrue(profile.acceptsOffset(3, -30)); assertTrue(profile.acceptsOffset(3, -720));
+        assertFalse(profile.acceptsOffset(3, -800)); assertFalse(profile.acceptsOffset(3, Integer.MAX_VALUE));
+        var outside = base.plus(new SafeAreaGeometry.Edges(-20, -20, -20, -160));
+        assertTrue(outside.valid(748, 720)); assertEquals(new DockGeometry.Box(0, 0, 748, 720), outside.frame(748, 720));
+        assertFalse(new SafeAreaGeometry.Edges(-500, 0, 700, 0).valid(748, 720));
     }
 }

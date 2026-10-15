@@ -3,8 +3,6 @@ package io.github.flipcover.controls;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.view.View;
-import android.view.WindowInsets;
-import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ImageButton;
@@ -46,15 +44,11 @@ final class NativeWidgetUi {
         row.setBackground(Ui.ripple(c, 0, 0)); row.setFocusable(true); row.setOnClickListener(v -> action.run()); return row;
     }
     static int previewHeight(Context c, int maximumDp) {
-        var metrics = c.getSystemService(WindowManager.class).getCurrentWindowMetrics();
-        var safe = metrics.getWindowInsets().getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-        int height = metrics.getBounds().height() - safe.top - safe.bottom;
+        int height = SafeAreaManager.contentBounds(c).height();
         return Math.min(SettingsUi.dp(c, maximumDp), Math.max(SettingsUi.dp(c, 64), Math.round(height * .30f)));
     }
     static int contentWidth(Context c) {
-        var metrics = c.getSystemService(WindowManager.class).getCurrentWindowMetrics();
-        var safe = metrics.getWindowInsets().getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-        return metrics.getBounds().width() - safe.left - safe.right - SettingsUi.dp(c, 16);
+        return Math.max(0, SafeAreaManager.contentBounds(c).width() - SettingsUi.dp(c, 16));
     }
     private NativeWidgetUi() { }
 }

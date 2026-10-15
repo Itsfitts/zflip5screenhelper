@@ -62,7 +62,7 @@ gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
 ## 本地与设备验证
 
-统一安全区使用 `SafeAreaGeometryTest` 和模拟器 `-e scenario safe-area`，四方向自动／手动、非零边界及白条位置回归见 [安全区契约](safe-area.md)。校准旋转、实际辅助线、取消恢复和原生宿主另做物理真机验收。
+统一安全区使用 `SafeAreaGeometryTest` 和模拟器 `-e scenario safe-area`，覆盖四方向自动／手动、正负偏移、单行方向、数字/滑条提交及取消同步、1×/2×/8÷7窗口比例、偏移宿主与键盘；`runtime-safe-area` 同时检查四方向非零手动边界下的控制/通知/启动器/任务实际布局与原生宿主映射。源码入口收口由 `node tools/project/check.mjs` 检查。非零边界及白条位置回归见 [安全区契约](safe-area.md)。校准旋转、实际辅助线、取消恢复和原生宿主另做物理真机验收。
 
 完整外屏边衬回归入口为 `-e scenario full-window-insets`：覆盖0°／90°／180°／270°、各方向合法白条位置、最大窗口144px而实测仅需物理66px的对照、实测仍为144px时保持真实避让、导航隐藏旧边衬、主屏／偏移／局部／密度不匹配来源拒绝、同尺寸反转及迟到回调隔离、输入法裁剪和恢复期间保持有效样本；同几何0→64与96→0的旧样本失效、旧布局事件拒绝、编辑前待处理事件隔离、尚无实测时的编辑保持、读取失败及编辑结束后应用新边衬。配合 `runtime-safe-area` 检查四方向真实控件布局、启动器及原生组件安全区，`clock-dock`、`panel-entry` 与 `diagnostic-refresh` 检查既有窗口生命周期、手势和复制。三星真机须核对来源是否为“全屏实测”、实际位置、空白和四方向滑动；正常设备通过不能替代异常SM-F731N的验收。
 

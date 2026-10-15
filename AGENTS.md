@@ -20,7 +20,7 @@
 | 模块 | 主要责任与入口 |
 | --- | --- |
 | 外屏窗口与快捷入口 | `CoverService` 管理显示器及窗口生命周期，`DockView` 管理快捷按钮，`PanelEntryView` 管理横向双白条，`DockGeometry` 统一几何；见 [模块契约](docs/module-contracts.md#快捷栏状态栏与显示器) |
-| 统一安全区 | `CoverSafeArea` 统一自动／手动布局策略，`SafeAreaGeometry` 处理区域约束，`SafeAreaCalibration` 管理旋转与校准草稿，`Prefs` 保存四方向本机配置；见 [安全区契约](docs/safe-area.md) |
+| 统一安全区 | `SafeAreaManager` 统一显示尺寸、屏幕坐标转换与自动／手动布局策略，`SafeAreaGeometry` 处理区域约束，`SafeAreaCalibration` 管理旋转与校准草稿，`Prefs` 保存四方向本机配置；见 [安全区契约](docs/safe-area.md) |
 | 设置 | `MainActivity` 管理路由与草稿，`SettingsUi` 管理设置主题，`SettingsNavigator` 管理来源栈，`SettingsOrderList` 管理列表编辑；见 [设置契约](docs/module-contracts.md#设置与外接输入) |
 | 控制中心 | `Panels` 构建正文，`ControlEditorView` 管理面板内编辑，`ControlEditGrid` 与 `ControlCandidatesView` 共用编辑网格规格；见 [控制契约](docs/module-contracts.md#控制中心) |
 | 启动器 | `AppHubView` 管理浮窗，`AppWorkspaceView` 与 `AppDragController` 管理分页与拖拽，`LauncherWidgetBridge` 与 `LauncherWidgetViews` 适配原生卡片；见 [双宿主边界](docs/launcher-hosts.md) 与 [桌面布局](docs/app-workspace-folder-plan.md) |

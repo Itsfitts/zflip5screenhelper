@@ -314,7 +314,7 @@ final class AppHubView extends PanelSurface {
     }
     @Override protected float dismissalExtent() {
         if (!expanded && !showingTasks()) return Math.max(1, getHeight() > 0 && dockHost.isLaidOut() ? getHeight() - dockHost.getTop() : dp(AppLauncherStyle.dockHeight()));
-        return Math.max(1, getHeight() > 0 ? getHeight() : getResources().getDisplayMetrics().heightPixels);
+        return Math.max(1, getHeight() > 0 ? getHeight() : SafeAreaManager.contentBounds(getContext()).height());
     }
     @Override protected boolean shouldDismiss(float distance, float extent, float speed) {
         if (!showingTasks() && (!expanded || followingDismissal && distance >= dismissalStart + dismissalAppTravel)) {
@@ -334,7 +334,7 @@ final class AppHubView extends PanelSurface {
     @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) { super.onSizeChanged(w, h, oldw, oldh); if (showingTasks()) revealProgress(revealProgress); if (grid != null && (w != oldw || h != oldh)) { if (oldw > 0) stopLauncherForce(); dockHeld = null; dockMoving = false; grid.cancelInteraction(); if (workspaceTools != null) workspaceTools.resize(); } }
     @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
         super.dispatchDraw(canvas);
-        if (grid.dragging()) { grid.getLocationOnScreen(dragSource); getLocationOnScreen(dragOrigin); int saved = canvas.save(); canvas.translate(dragSource[0] - dragOrigin[0], dragSource[1] - dragOrigin[1]); grid.drawDragVisual(canvas); canvas.restoreToCount(saved); }
+        if (grid.dragging()) { SafeAreaManager.screenLocation(grid, dragSource); SafeAreaManager.screenLocation(this, dragOrigin); int saved = canvas.save(); canvas.translate(dragSource[0] - dragOrigin[0], dragSource[1] - dragOrigin[1]); grid.drawDragVisual(canvas); canvas.restoreToCount(saved); }
     }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         pointerX = event.getX(); pointerY = event.getY();
@@ -346,7 +346,7 @@ final class AppHubView extends PanelSurface {
         }
         if (dockHeld != null) {
             if (multiplePointers || closing || event.getActionMasked() == MotionEvent.ACTION_CANCEL) { grid.cancelInteraction(); dockHeld = null; dockMoving = false; return true; }
-            int[] origin = new int[2], source = new int[2]; getLocationOnScreen(origin); grid.getLocationOnScreen(source); float x = pointerX + origin[0] - source[0], y = pointerY + origin[1] - source[1];
+            int[] origin = new int[2], source = new int[2]; SafeAreaManager.screenLocation(this, origin); SafeAreaManager.screenLocation(grid, source); float x = pointerX + origin[0] - source[0], y = pointerY + origin[1] - source[1];
             if (!dockMoving && event.getActionMasked() == MotionEvent.ACTION_MOVE && Math.hypot(pointerX - dockDownX, pointerY - dockDownY) > android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop()) {
                 MotionEvent cancel = MotionEvent.obtain(event); cancel.setAction(MotionEvent.ACTION_CANCEL); super.dispatchTouchEvent(cancel); cancel.recycle(); dockMoving = true; grid.externalDockDrag(dockHeld, x, y);
             }
@@ -389,7 +389,7 @@ final class AppHubView extends PanelSurface {
     private String catalogStatus(int count) { return AppLauncherModel.catalogStatus(count, cache.ready(), cache.failed()); }
     private void clearDockDrop() { dockHost.clearDrop(); if (dockHint) { dockHint = false; information.setText(catalogStatus(filtered.size())); } }
     private boolean dropDock(String id, float x, float y, boolean commit) {
-        int[] origin = new int[2], dock = new int[2]; grid.getLocationOnScreen(origin); dockHost.getLocationOnScreen(dock);
+        int[] origin = new int[2], dock = new int[2]; SafeAreaManager.screenLocation(grid, origin); SafeAreaManager.screenLocation(dockHost, dock);
         int index = dockHost.dropTarget(id, x + origin[0] - dock[0], y + origin[1] - dock[1]);
         boolean remove = dockMoving && index == -1 && x >= 0 && x < grid.getWidth() && y >= 0 && y < grid.gridHeight();
         if (index == -1 && !remove) { clearDockDrop(); return false; }

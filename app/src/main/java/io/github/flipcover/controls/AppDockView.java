@@ -118,7 +118,7 @@ final class AppDockView extends FrameLayout implements SharedGlassHost {
         List<String> pins = prefs.hubPins();
         if (dropBase != null && (!dropBase.equals(pins) || !id.equals(dropId))) clearDrop();
         if (dropBase == null) {
-            int[] origin = new int[2], location = new int[2]; getLocationOnScreen(origin); row.getLocationOnScreen(location);
+            int[] origin = new int[2], location = new int[2]; SafeAreaManager.screenLocation(this, origin); SafeAreaManager.screenLocation(row, location);
             float left = location[0] - origin[0], top = location[1] - origin[1];
             View last = row.getChildAt(pins.size()); if (last == null) return -1;
             dropBounds.set(left, top - dp(10), left + last.getRight(), top + row.getHeight() + dp(6));

@@ -41,7 +41,7 @@ final class SystemAppPortrait {
         android.content.pm.ActivityInfo activity = context.getPackageManager().getActivityInfo(component, 0);
         if (!activity.exported || !activity.enabled || !activity.applicationInfo.enabled || activity.applicationInfo.uid / 100000 != user) throw new SecurityException("Unavailable application");
         close();
-        Session session = new Session(displayId, display.getRotation(), request, name, id);
+        Session session = new Session(displayId, SafeAreaManager.rotation(display), request, name, id);
         current = session;
         try {
             Class<?> organizerType = Class.forName("android.window.DisplayAreaOrganizer");
@@ -52,9 +52,9 @@ final class SystemAppPortrait {
             session.leash = (SurfaceControl) appeared.getClass().getMethod("getLeash").invoke(appeared);
             if (info.getClass().getField("displayId").getInt(info) != displayId) throw new SecurityException("Wrong display area");
             session.feature = info.getClass().getField("featureId").getInt(info);
-            int width = display.getMode().getPhysicalWidth(), height = display.getMode().getPhysicalHeight();
+            int width = SafeAreaManager.physicalSize(display).x, height = SafeAreaManager.physicalSize(display).y;
             if (session.rotation % 2 != 0) { int swap = width; width = height; height = swap; }
-            DisplayCutout cutout = display.getCutout();
+            DisplayCutout cutout = SafeAreaManager.cutout(display);
             session.bounds = AppPortraitBounds.fit(width, height, cutout == null ? 0 : cutout.getSafeInsetLeft(), cutout == null ? 0 : cutout.getSafeInsetTop(), cutout == null ? 0 : cutout.getSafeInsetRight(), cutout == null ? 0 : cutout.getSafeInsetBottom(), ratio);
             Rect bounds = new Rect(0, 0, session.bounds.width(), session.bounds.height());
             Class<?> transactionType = Class.forName("android.window.WindowContainerTransaction");

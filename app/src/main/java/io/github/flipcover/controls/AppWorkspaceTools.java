@@ -85,9 +85,9 @@ final class AppWorkspaceTools {
             public boolean outside(float x, float y) { View card = current.findViewWithTag("detail-card"); Rect bounds = new Rect(); card.getGlobalVisibleRect(bounds); return !bounds.contains((int) x, (int) y); }
             public boolean external(String app, float x, float y) {
                 if (!grid.editable()) return false;
-                int[] origin = new int[2]; grid.getLocationOnScreen(origin); external = true; current.setAlpha(0); grid.externalDrag(app, x - origin[0], y - origin[1]); return grid.dragging();
+                int[] origin = new int[2]; SafeAreaManager.screenLocation(grid, origin); external = true; current.setAlpha(0); grid.externalDrag(app, x - origin[0], y - origin[1]); return grid.dragging();
             }
-            public void forward(MotionEvent event) { int[] origin = new int[2]; grid.getLocationOnScreen(origin); MotionEvent copy = MotionEvent.obtain(event); copy.setLocation(event.getRawX() - origin[0], event.getRawY() - origin[1]); grid.dispatchTouchEvent(copy); copy.recycle(); }
+            public void forward(MotionEvent event) { int[] origin = new int[2]; SafeAreaManager.screenLocation(grid, origin); MotionEvent copy = MotionEvent.obtain(event); copy.setLocation(event.getRawX() - origin[0], event.getRawY() - origin[1]); grid.dispatchTouchEvent(copy); copy.recycle(); }
             public void endExternal() { close(); }
         }); current.content.addView(members, new LinearLayout.LayoutParams(-1, -2));
         hub.folderForce(members); hub.folderPulse();

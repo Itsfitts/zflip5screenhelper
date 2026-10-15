@@ -17,7 +17,7 @@
     <string name="safe_area_save">保存安全区</string>
     <string name="safe_area_cancel">取消调整</string>
     <string name="safe_area_fill">用当前自动值填入</string>
-    <string name="safe_area_edit_help">青色描边是可用轮廓，正在调整的边为黄色。数值是距屏幕边缘的布局像素，不是照片像素。调整时实时试用，保存后保留，取消恢复。</string>
+    <string name="safe_area_edit_help">0 为保存的自动基准，负值向外扩展，正值向内收缩，单位为外屏布局像素。真实缺口与屏幕边缘始终保留。松手后试用，保存后保留，取消恢复。</string>
     <string name="safe_area_preview">布局示意 · 以外屏实际描边为准</string>
     <string name="safe_area_dimensions">当前方向 %1$d° · 校准尺寸 %2$d × %3$d px</string>
     <string name="safe_area_left">左边界</string>

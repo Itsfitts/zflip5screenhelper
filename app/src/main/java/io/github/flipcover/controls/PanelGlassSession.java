@@ -98,8 +98,8 @@ final class PanelGlassSession implements AutoCloseable {
     String state = "pending";
     private final Runnable timeout = () -> complete(null,null,"timeout");
     PanelGlassSession(Context context, Display display) {
-        this.context = context; displayId = display.getDisplayId(); rotation = display.getRotation();
-        Point size = new Point(); display.getRealSize(size); width = size.x; height = size.y; captureArea.set(0, 0, width, height); density = context.getResources().getDisplayMetrics().density;
+        this.context = context; displayId = display.getDisplayId(); rotation = SafeAreaManager.rotation(display);
+        Point size = SafeAreaManager.rawDisplaySize(display); width = size.x; height = size.y; captureArea.set(0, 0, width, height); density = context.getResources().getDisplayMetrics().density;
     }
     static boolean allowed(Context context, Prefs prefs) { return blockedReason(context, prefs) == null; }
     static String blockedReason(Context context, Prefs prefs) {
@@ -109,7 +109,7 @@ final class PanelGlassSession implements AutoCloseable {
         if (context.getSystemService(KeyguardManager.class).isKeyguardLocked()) return "keyguard";
         return null;
     }
-    boolean matches(Display display) { Point size = new Point(); display.getRealSize(size); return !closed && displayId == display.getDisplayId() && rotation == display.getRotation() && width == size.x && height == size.y; }
+    boolean matches(Display display) { Point size = SafeAreaManager.rawDisplaySize(display); return !closed && displayId == display.getDisplayId() && rotation == SafeAreaManager.rotation(display) && width == size.x && height == size.y; }
     boolean ready() { return !closed && shader != null; }
     boolean taskOptics() { return ready() || !closed && sourceInvalidated && hadBackdrop; }
     boolean closingBackdropValid() { return !sourceInvalidated && ready(); }
@@ -192,7 +192,7 @@ final class PanelGlassSession implements AutoCloseable {
         if (!ready() || backdrop==null || !canvas.isHardwareAccelerated()) return;
         GlassBackdrop pixels=backdrop; int originX=sourceX,originY=sourceY;
         for (android.view.ViewParent parent=host.getParent(); parent instanceof View ancestor; parent=ancestor.getParent()) if (ancestor instanceof DetailSheet) { if (modalBackdrop!=null) { pixels=modalBackdrop; originX=modalX; originY=modalY; } break; }
-        host.getLocationOnScreen(localBackdropPosition);
+        SafeAreaManager.screenLocation(host, localBackdropPosition);
         float x=originX-localBackdropPosition[0]-offsetX,y=originY-localBackdropPosition[1]-offsetY;
         localBackdropBounds.set(x,y,x+pixels.width,y+pixels.height);
         canvas.drawBitmap(pixels.sharp,null,localBackdropBounds,localBackdropPaint); draws++;
@@ -200,7 +200,7 @@ final class PanelGlassSession implements AutoCloseable {
     /** Reuses this opening's prepared Gaussian texture for the task page's final dissolve. */
     void drawClosingBackdrop(android.graphics.Canvas canvas, View host, float blur, float alpha) {
         if (sourceInvalidated || !ready() || backdrop == null || !canvas.isHardwareAccelerated() || alpha <= 0) return;
-        host.getLocationOnScreen(localBackdropPosition);
+        SafeAreaManager.screenLocation(host, localBackdropPosition);
         float x = sourceX - localBackdropPosition[0] + taskReactionX, y = sourceY - localBackdropPosition[1] + taskReactionY;
         localBackdropBounds.set(x, y, x + backdrop.width, y + backdrop.height);
         int saved = canvas.saveLayerAlpha(0, 0, host.getWidth(), host.getHeight(), Math.round(255 * alpha));
@@ -346,7 +346,7 @@ final class PanelGlassSession implements AutoCloseable {
     }
     void beginModal(View parent) {
         endModal(); if (!ready()) return;
-        int generation=modalGeneration; int[] position=new int[2]; parent.getLocationOnScreen(position);
+        int generation=modalGeneration; int[] position=new int[2]; SafeAreaManager.screenLocation(parent, position);
         modalX=position[0]; modalY=position[1];
         android.graphics.RenderNode record;
         try { record=GlassBackdrop.recordLocal(parent); } catch (RuntimeException | OutOfMemoryError failure) { return; }
