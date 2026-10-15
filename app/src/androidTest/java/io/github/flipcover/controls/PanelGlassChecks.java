@@ -320,6 +320,9 @@ final class PanelGlassChecks {
             checkRefinement();
             mount("controls",0,4); main(() -> panel.setTag("test-panel-surface"));
             main(() -> owner.showDetails("rotation",null)); idle(); checkSelectedDetail(); capture("rotation-selected"); main(owner::dismissDetails); idle();
+            // The twelve-action visual fixture fits without scrolling; use the
+            // native drag fixture before asserting edge-driven auto scrolling.
+            owner.prefs.saveActions("panel", ControlGridChecks.ACTIONS);
             assertions+=new ControlGridChecks(test).runOnPanel(activity,owner.prefs,owner,false);
             for (String page : List.of("media","rotation")) {
                 mount(page,5,4); Bitmap rendered=test.getUiAutomation().takeScreenshot();

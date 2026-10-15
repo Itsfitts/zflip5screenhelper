@@ -25,7 +25,7 @@ final class ControlGridChecks {
     private Prefs prefs;
     private CoverService owner;
     private int assertions;
-    private static final List<String> ACTIONS = List.of("wifi", "bluetooth", "data", "torch", "dnd", "airplane", "rotation", "media", "screenshot", "lock", "notifications", "apps", "configure", "nfc", "hotspot", "home", "back", "recents", "system_recents", "system_controls");
+    static final List<String> ACTIONS = List.of("wifi", "bluetooth", "data", "torch", "dnd", "airplane", "rotation", "media", "screenshot", "lock", "notifications", "apps", "configure", "nfc", "hotspot", "home", "back", "recents", "system_recents", "system_controls");
     ControlGridChecks(Instrumentation test) { this.test = test; }
     private void main(Runnable work) { test.runOnMainSync(work); test.waitForIdleSync(); }
     private View tag(String id) { return activity.findViewById(android.R.id.content).findViewWithTag(id); }
