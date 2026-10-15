@@ -94,12 +94,7 @@ final class TaskPreviewView extends View {
     private int dp(float value) { return Ui.dp(getContext(), value); }
     /** Keep the page's physical corner radius, without shrinking it with the card. */
     static float cornerRadius(View owner, float width, float height) {
-        float radius = Ui.dp(owner.getContext(), 24);
-        if (Build.VERSION.SDK_INT >= 31 && owner.getRootWindowInsets() != null) {
-            float physical = Float.MAX_VALUE;
-            for (int i = 0; i < 4; i++) { android.view.RoundedCorner corner = owner.getRootWindowInsets().getRoundedCorner(i); if (corner != null && corner.getRadius() > 0) physical = Math.min(physical, corner.getRadius()); }
-            if (physical != Float.MAX_VALUE) radius = Math.max(0, physical - 1);
-        }
+        float radius = SafeAreaManager.physicalCornerRadius(owner.getRootWindowInsets(), Ui.dp(owner.getContext(), 24));
         return Math.min(Math.min(width, height) / 2f, radius);
     }
     @Override protected void onDraw(Canvas canvas) {

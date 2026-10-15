@@ -57,6 +57,7 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
         uniform float taskLens;
         uniform float4 safeArea;
         uniform float unsafeBand;
+        uniform float2 readingEdge;
         half4 main(float2 p) {
             p -= layoutOffset;
             float2 c = p - size * .5;
@@ -74,10 +75,13 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
             else color = strong.eval(samplePoint).rgb;
             float overflow = max(max(safeArea.x - p.x, p.x - safeArea.z), max(safeArea.y - p.y, p.y - safeArea.w));
             float unsafeMix = unsafeBand > 0.0 ? smoothstep(-unsafeBand, unsafeBand, overflow) : 0.0;
-            color = mix(color, strong.eval(samplePoint).rgb, unsafeMix);
+            float readingMix = readingEdge.y > readingEdge.x ? smoothstep(readingEdge.x, readingEdge.y, p.y) : 0.0;
+            half3 boundary = strong.eval(samplePoint).rgb;
+            color = mix(color, boundary, max(unsafeMix, readingMix));
             if (edge <= 0.0 && source < .5) return half4(color * gain,1);
             half3 crisp = color;
             if (edge > 0.0) crisp = source > .5 && readable < .5 ? soft.eval(samplePoint).rgb : sharp.eval(samplePoint).rgb;
+            crisp = mix(crisp, boundary, readingMix);
             // Outside the captured frame there is no real detail to refract. Use the
             // cached edge average instead of stretching one bright boundary pixel.
             if (source < .5 && edge > 0.0) {
@@ -182,16 +186,9 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
     void fallbackBackground(Drawable value) { original = value; }
     private float radius(float width,float height) {
         if (role == Role.TASK_PREVIEW) return TaskPreviewView.cornerRadius(owner,width,height);
+        if (page()) return SafeAreaManager.pageRadius(owner,width,height);
         float requested = role == Role.FOLDER ? AppLauncherStyle.folderRadius(owner.getContext()) : role == Role.LAUNCHER_SEARCH || role == Role.LAUNCHER_PANEL ? AppLauncherStyle.panelRadius(owner.getContext()) : role == Role.LAUNCHER_DOCK ? AppLauncherStyle.dockRadius(owner.getContext()) : role.radius;
-        float radius=Math.min(requested*density,Math.min(width,height)/2f);
-        if (!page() || android.os.Build.VERSION.SDK_INT<31 || owner.getRootWindowInsets()==null) return radius;
-        float physical=Float.MAX_VALUE;
-        for (int i=0;i<4;i++) { android.view.RoundedCorner corner=owner.getRootWindowInsets().getRoundedCorner(i); if (corner!=null) physical=Math.min(physical,corner.getRadius()); }
-        if (physical==Float.MAX_VALUE) physical=0;
-        // Extend one pixel beneath the physical mask to avoid an antialiasing seam.
-        physical=Math.max(0,physical-1); float lifted=Math.min(1,Math.abs(owner.getTranslationY())/Math.max(1,radius*2));
-        if (owner instanceof InterfaceCard card) lifted = Math.max(lifted, card.insetProgress());
-        return physical+(radius-physical)*lifted;
+        return Math.min(requested*density,Math.min(width,height)/2f);
     }
     private void visualBounds(RectF bounds) { if (owner instanceof LauncherMotionLayout group) group.materialBounds(bounds); if (owner instanceof InterfaceCard card) card.visualBounds(bounds); else if (launcher != null) launcher.glassBounds(owner, bounds); }
     @Override public void getOutline(Outline outline) { box.set(getBounds()); visualBounds(box); if (box.isEmpty()) { outline.setEmpty(); return; } box.round(visible); outline.setRoundRect(visible,radius(box.width(),box.height())); outline.setAlpha(1); }
@@ -230,6 +227,11 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
             if (owner instanceof InterfaceCard card && card.effectSafeArea() != null) {
                 DockGeometry.Box safe = card.effectSafeArea(); shader.setFloatUniform("safeArea", safe.x() - box.left, safe.y() - box.top, safe.right() - box.left, safe.bottom() - box.top); shader.setFloatUniform("unsafeBand", 20 * density);
             } else { shader.setFloatUniform("safeArea", 0, 0, box.width(), box.height()); shader.setFloatUniform("unsafeBand", 0); }
+            // Notifications keep a clear page interior. Their reserved bottom
+            // strip must not reveal sharp desktop icons after the list ends.
+            if (owner instanceof InterfaceCard card && card.definition().id().equals("notifications") && card.safeArea() != null) {
+                float bottom = card.safeArea().bottom() - box.top; shader.setFloatUniform("readingEdge", bottom - Ui.dp(owner.getContext(), 16), bottom);
+            } else shader.setFloatUniform("readingEdge", 0, 0);
             shader.setFloatUniform("readable",launcherPlate() || role == Role.FOLDER || role == Role.LAUNCHER_SEARCH || role == Role.TASK_ACTION || role == Role.CARD || role == Role.TEXT || role == Role.TILE || role == Role.EDITOR || role == Role.INPUT ? 1 : 0);
             boolean toggle=owner.getParent() instanceof GlassToggle; shader.setFloatUniform("toggle",toggle ? 1 : 0);
             if (toggle) { GlassToggle control=(GlassToggle)owner.getParent(); RectF track=control.screenTrack(); int color=control.trackColor(); shader.setFloatUniform("toggleTrack",track.centerX(),track.centerY(),track.width(),track.height()); shader.setFloatUniform("toggleColor",Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,Color.alpha(color)/255f); }

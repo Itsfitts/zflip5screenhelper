@@ -40,7 +40,8 @@ final class PageBoundaryChecks {
                                 require(Color.red(image.getPixel(w / 2, content.bottom() + 3)) == 0, "overflowing content cannot paint over reserved chrome");
                                 card.contentSafeBounds(page); image.eraseColor(Color.TRANSPARENT); card.draw(new Canvas(image));
                                 int band = Ui.dp(activity, 16);
-                                require(Color.red(image.getPixel(w / 2, page.bottom() - band / 2)) > 80 && Color.red(image.getPixel(w / 2, page.bottom() - 3)) < 90, "page fade ends at the page boundary when content reaches it");
+                                if (definition == InterfaceCard.NOTIFICATIONS) require(Color.red(image.getPixel(w / 2, page.bottom() - 3)) > 240, "notification list owns its reading fade; the page does not apply a second mask");
+                                else require(Color.red(image.getPixel(w / 2, page.bottom() - band / 2)) > 80 && Color.red(image.getPixel(w / 2, page.bottom() - 3)) < 90, "page fade ends at the page boundary when content reaches it");
                                 card.contentSafeBounds(content);
                             } finally { image.recycle(); }
                             tap(card, content.x() + 20, content.y() + 20); require(clicks[0] == 1, "content still receives clicks");

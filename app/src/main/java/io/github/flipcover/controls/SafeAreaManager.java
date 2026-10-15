@@ -150,6 +150,21 @@ final class SafeAreaManager {
         return local;
     }
     static boolean contains(DockGeometry.Box area, float x, float y) { return x >= area.x() && y >= area.y() && x < area.right() && y < area.bottom(); }
+    /** RoundedCorner values are already pixels in the owning window's coordinate space. */
+    static float physicalCornerRadius(WindowInsets insets, float fallback) {
+        if (android.os.Build.VERSION.SDK_INT < 31 || insets == null) return fallback;
+        float radius = Float.MAX_VALUE;
+        for (int i = 0; i < 4; i++) { android.view.RoundedCorner corner = insets.getRoundedCorner(i); if (corner != null && corner.getRadius() > 0) radius = Math.min(radius, corner.getRadius()); }
+        return radius == Float.MAX_VALUE ? fallback : Math.max(0, radius - 1);
+    }
+    /** Static safety margins never mean a lifted page. Only the actual scene motion changes its radius. */
+    static float pageRadius(View owner, float width, float height) {
+        float limit = Math.max(0, Math.min(width, height) / 2), floating = Math.min(Ui.dp(owner.getContext(), 32), limit);
+        WindowInsets insets = owner.getRootWindowInsets();
+        float resting = Math.min(limit, physicalCornerRadius(insets, insets == null || android.os.Build.VERSION.SDK_INT < 31 ? floating : 0));
+        float progress = Math.min(1, (float) Math.hypot(owner.getTranslationX(), owner.getTranslationY()) / Math.max(1, floating * 2));
+        return resting + (floating - resting) * progress;
+    }
     static DockGeometry.ClockHandle clockHandle(Snapshot area, DockGeometry.Placement dock, DockGeometry.Placement entry, DockGeometry.Box status, Insets insets) {
         int top = Math.max(insets.top, status == null ? 0 : status.bottom());
         DockGeometry.Box available = new DockGeometry.Box(insets.left, top, Math.max(0, area.width() - insets.left - insets.right), Math.max(0, area.height() - top - insets.bottom));

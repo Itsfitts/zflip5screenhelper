@@ -496,6 +496,12 @@ final class PanelGlassChecks {
     }
     private int checkCompactActions(View view) {
         int count=0;
+        // Rotation tabs own four equal hit slots and switch between liquid and
+        // native fallback children. They intentionally bypass PanelActionSlot.
+        if (view instanceof ControlRotationTabs) {
+            for (int i=0;i<4;i++) { View tab=view.findViewWithTag("detail-angle-"+i); require(tab!=null && tab.getParent()==view && tab.getWidth()>0 && tab.getHeight()>0,"rotation fallback keeps its own four measured touch slots"); }
+            return 0;
+        }
         if (view instanceof android.widget.ImageButton || view instanceof android.widget.Button) { require(view.getParent() instanceof PanelActionSlot,"detail action retains an original-sized touch slot"); require(view.getScaleX()<=.8f && view.getScaleY()<=.8f,"detail artwork is compact"); count++; }
         if (view instanceof ViewGroup group) for (int i=0;i<group.getChildCount();i++) count+=checkCompactActions(group.getChildAt(i)); return count;
     }

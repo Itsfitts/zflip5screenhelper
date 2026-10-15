@@ -3,6 +3,11 @@ package io.github.flipcover.controls;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.BlendMode;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -32,6 +37,8 @@ final class NotificationScrollView extends ScrollView {
     private NotificationForceHeader headerForce;
     private long lastScrollAt, forceFrameAt;
     private final Runnable forceFrame = this::advanceScrollForce;
+    private final Paint bottomMask = new Paint();
+    private int maskBottom = -1, maskBand = -1;
 
     NotificationScrollView(Context context) {
         super(context); ViewConfiguration config = ViewConfiguration.get(context);
@@ -132,9 +139,19 @@ final class NotificationScrollView extends ScrollView {
         for (int i = 0; i < forceRows.size(); i++) { NotificationSwipeRow row = forceRows.get(i); row.scrollForce.reset(); row.sideForce.reset(); row.invalidateForce(); }
     }
     @Override protected void dispatchDraw(Canvas canvas) {
+        // The reading edge belongs to this viewport, not to the outer page or
+        // the elastically displaced rows. Stop fading once the last row is in view.
+        boolean fade = canScrollVertically(1);
+        int bottom = getHeight() - getPaddingBottom();
+        int band = Math.min(Ui.dp(getContext(), 16), getHeight());
+        int layer = fade ? canvas.saveLayer(getScrollX(), getScrollY(), getScrollX() + getWidth(), getScrollY() + getHeight(), null) : 0;
         int saved = canvas.save();
         canvas.translate(0, visualTranslation());
         super.dispatchDraw(canvas); canvas.restoreToCount(saved);
+        if (fade) {
+            if (maskBottom != bottom || maskBand != band) { maskBottom = bottom; maskBand = band; bottomMask.setShader(new LinearGradient(0, bottom - band, 0, bottom, Color.BLACK, Color.TRANSPARENT, Shader.TileMode.CLAMP)); bottomMask.setBlendMode(BlendMode.DST_IN); }
+            canvas.translate(getScrollX(), getScrollY()); canvas.drawRect(0, 0, getWidth(), getHeight(), bottomMask); canvas.restoreToCount(layer);
+        }
     }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();

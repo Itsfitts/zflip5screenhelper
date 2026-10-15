@@ -95,11 +95,9 @@ final class InterfaceCard extends FrameLayout {
     }
     DockGeometry.Box localFrame() { return new DockGeometry.Box(0, 0, viewport.width(), viewport.height()); }
     void visualBounds(RectF result) { if (visual.isEmpty()) result.set(0, 0, getWidth(), getHeight()); else result.set(visual); }
-    float insetProgress() {
-        if (viewport == null || safeCardArea == null) return 0;
-        float margin = safeCardArea.x() - viewport.x() + safeCardArea.y() - viewport.y() + viewport.right() - safeCardArea.right() + viewport.bottom() - safeCardArea.bottom();
-        return margin <= 0 ? 0 : Math.max(0, Math.min(1, (visual.left + visual.top + viewport.width() - visual.right + viewport.height() - visual.bottom) / margin));
-    }
+    @Override public android.view.WindowInsets onApplyWindowInsets(android.view.WindowInsets insets) { invalidateOutline(); invalidate(); return super.onApplyWindowInsets(insets); }
+    @Override public void setTranslationX(float value) { if (getTranslationX() == value) return; super.setTranslationX(value); invalidateOutline(); invalidate(); }
+    @Override public void setTranslationY(float value) { if (getTranslationY() == value) return; super.setTranslationY(value); invalidateOutline(); invalidate(); }
     void prepareEntry() { if (viewport == null) return; visual.set(cardArea.x() - viewport.x(), cardArea.y() - viewport.y(), cardArea.right() - viewport.x(), cardArea.bottom() - viewport.y()); beginEntryCrop(); invalidateOutline(); invalidate(); }
     void beginEntryCrop() { cropStart.set(visual); if (viewport != null) cropTarget.set(cardArea.x() - viewport.x(), cardArea.y() - viewport.y(), cardArea.right() - viewport.x(), cardArea.bottom() - viewport.y()); }
     void beginExitCrop() { cropStart.set(visual); if (viewport != null) cropTarget.set(safeCardArea.x() - viewport.x(), safeCardArea.y() - viewport.y(), safeCardArea.right() - viewport.x(), safeCardArea.bottom() - viewport.y()); }
@@ -142,7 +140,7 @@ final class InterfaceCard extends FrameLayout {
         if (child != content || localSafeArea == null || !definition.useSafeArea()) return super.drawChild(canvas, child, drawingTime);
         int clip = canvas.save(); canvas.clipRect(localSafeArea.x(), localSafeArea.y(), localSafeArea.right(), localSafeArea.bottom());
         DockGeometry.Box safe = effectSafeArea();
-        if (safe.bottom() >= getHeight()) { boolean drawn = super.drawChild(canvas, child, drawingTime); canvas.restoreToCount(clip); return drawn; }
+        if (definition.id().equals("notifications") || safe.bottom() >= getHeight()) { boolean drawn = super.drawChild(canvas, child, drawingTime); canvas.restoreToCount(clip); return drawn; }
         int band = Ui.dp(getContext(), 16); int checkpoint = canvas.saveLayer(0, 0, getWidth(), getHeight(), null);
         boolean drawn = super.drawChild(canvas, child, drawingTime);
         if (maskBottom != safe.bottom()) { maskBottom = safe.bottom(); contentMask.setShader(new android.graphics.LinearGradient(0, maskBottom - band, 0, maskBottom, Color.BLACK, Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)); contentMask.setBlendMode(android.graphics.BlendMode.DST_IN); }
@@ -160,8 +158,8 @@ final class InterfaceCard extends FrameLayout {
         setBackground(new android.graphics.drawable.Drawable() {
             private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             private final RectF bounds = new RectF();
-            @Override public void draw(android.graphics.Canvas canvas) { visualBounds(bounds); paint.setColor(color); float radius = Math.min(Ui.dp(getContext(), 32), Math.min(bounds.width(), bounds.height()) / 2); canvas.drawRoundRect(bounds, radius, radius, paint); }
-            @Override public void getOutline(android.graphics.Outline outline) { visualBounds(bounds); bounds.round(outlineBox); outline.setRoundRect(outlineBox, Ui.dp(getContext(), 32)); outline.setAlpha(1); }
+            @Override public void draw(android.graphics.Canvas canvas) { visualBounds(bounds); paint.setColor(color); float radius = SafeAreaManager.pageRadius(InterfaceCard.this, bounds.width(), bounds.height()); canvas.drawRoundRect(bounds, radius, radius, paint); }
+            @Override public void getOutline(android.graphics.Outline outline) { visualBounds(bounds); bounds.round(outlineBox); outline.setRoundRect(outlineBox, SafeAreaManager.pageRadius(InterfaceCard.this, bounds.width(), bounds.height())); outline.setAlpha(1); }
             @Override public void setAlpha(int alpha) { }
             @Override public void setColorFilter(android.graphics.ColorFilter filter) { }
             @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
