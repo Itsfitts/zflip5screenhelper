@@ -515,7 +515,9 @@ public final class CoverService extends AccessibilityService implements DisplayM
             // overlays cannot borrow another display's package. Briefly unresolved
             // window replacements wait for metadata, then default to visible.
             if (statusVisibility.enabled()) statusApplication(windowPackages.get(backgroundWindow));
+            boolean keyboardEnded = !inputMethod && !Boolean.FALSE.equals(keyboardVisible);
             keyboardVisible = inputMethod;
+            if (keyboardEnded && coverWindowInsets.deferred()) scheduleDisplay();
             if (launcherForegroundPending) {
                 launcherForegroundPending = false;
                 launcherEntryPending = launcherHostFocused && dock != null && !dock.compact();
@@ -567,21 +569,15 @@ public final class CoverService extends AccessibilityService implements DisplayM
             observeForeground(null);
             Context context = createDisplayContext(selected);
             float density = context.getResources().getDisplayMetrics().density;
-            android.view.WindowInsets displayInsets = null;
-            try {
-                WindowManager metrics = windows != null && display != null && display.getDisplayId() == selected.getDisplayId() ? windows : context.getSystemService(WindowManager.class);
-                android.view.WindowMetrics maximum = metrics.getMaximumWindowMetrics(); displayInsets = maximum.getWindowInsets();
-                entryWindowMetrics = "bounds=" + maximum.getBounds() + ", navigationVisible=" + displayInsets.isVisible(android.view.WindowInsets.Type.navigationBars()) + ", cutout=" + displayInsets.getDisplayCutout();
-            } catch (RuntimeException error) { entryWindowMetrics = "读取失败：" + error.getClass().getSimpleName(); }
-            String maximumInsets = displayInsets == null ? "不可用" : "mandatory=" + displayInsets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures()) + ", navigation=" + displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
-            displayInsets = coverWindowInsets.resolve(windowGeometry(selected, size, density), displayInsets);
-            entryWindowMetrics += ", 原始边衬=" + maximumInsets + "\n" + coverWindowInsets.diagnostics();
+            WindowManager metrics = windows != null && display != null && display.getDisplayId() == selected.getDisplayId() ? windows : context.getSystemService(WindowManager.class);
+            android.view.WindowInsets displayInsets = readMaximumInsets(metrics);
+            displayInsets = coverWindowInsets.resolve(windowGeometry(selected, size, density), displayInsets, controlEditor != null || Boolean.TRUE.equals(keyboardVisible));
             android.graphics.Insets mandatory = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures());
             android.graphics.Insets navigation = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsets(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets navigationBounds = displayInsets == null ? android.graphics.Insets.NONE : displayInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.navigationBars());
             android.graphics.Insets systemInsets = contentInsets(displayInsets, selected.getCutout());
             String nextDisplaySignature = selected.getDisplayId() + ":" + rotation + ":" + size + ":" + density + ":" + selected.getCutout();
-            String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets + ":" + coverWindowInsets.source();
+            String nextSignature = nextDisplaySignature + ":" + mandatory + ":" + navigation + ":" + navigationBounds + ":" + systemInsets;
             if (!force && nextSignature.equals(signature) && dock != null && dock.isAttachedToWindow() && panelEntry != null && panelEntry.isAttachedToWindow()) { syncDockVisibility(); resumeNativeCardUpdates(); return; }
             // IME and foreground changes can alter navigation insets on the same display.
             // Retain the expanded launcher/search or task session until it closes; the
@@ -631,7 +627,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (!prefs.avoidNavigation()) placement = DockGeometry.edgeTouch(placement, size.x, size.y);
         DockGeometry.Box widgetArea = resolveContentGeometry(size, rotation, cutouts, entryAnchor, systemInsets, panelHomeInset);
         computedEntryGeometryInputs = "显示器=" + selected.getDisplayId() + ", rotation=" + rotation + ", size=" + size.x + "×" + size.y + ", density=" + density
-            + "\n计算所用最大窗口度量=" + entryWindowMetrics
+            + "\n计算所用最大窗口度量=" + entryWindowMetrics + "\n" + coverWindowInsets.diagnostics()
             + "\nDisplay 缺口=" + selected.getCutout() + "\n缺口矩形=" + cutouts
             + "\n强制手势边衬=" + mandatory + "\n可见导航边衬=" + navigation + "\n忽略可见性的导航边衬=" + navigationBounds
             + "\n正文综合边衬=" + systemInsets + ", 白条 Home 避让=" + panelHomeInset
@@ -1128,7 +1124,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         controlEditor = new ControlEditorView(panel.getContext(), prefs, restored, id -> CoverApp.bridge(this).run("tile_add", -1, 0, ActionCatalog.component(id).flattenToString(), result -> message(result.message)), () -> {
             if (panel == null || controlEditor == null) return;
             screenContext.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(controlEditor.getWindowToken(), 0);
-            controlEditor = null; populatePanel("controls"); if (panelCard != null) panelCard.statusVisible(true); panelEditorFocus(false); if (instance == this) refreshStates(true);
+            controlEditor = null; populatePanel("controls"); if (panelCard != null) panelCard.statusVisible(true); panelEditorFocus(false); if (instance == this) { refreshStates(true); if (coverWindowInsets.deferred()) scheduleDisplay(); }
         });
         controlEditor.glass(panelGlass); panel.addView(controlEditor, new LinearLayout.LayoutParams(-1, 0, 1)); panelEditorFocus(true); controlEditor.requestFocus();
     }
@@ -1168,19 +1164,46 @@ public final class CoverService extends AccessibilityService implements DisplayM
     private static CoverWindowInsets.Geometry windowGeometry(Display target, Point size, float density) {
         return new CoverWindowInsets.Geometry(target.getDisplayId(), target.getRotation(), size.x, size.y, density, String.valueOf(target.getCutout()));
     }
+    private android.view.WindowInsets readMaximumInsets(WindowManager metrics) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        try {
+            android.view.WindowMetrics maximum = metrics.getMaximumWindowMetrics(); android.view.WindowInsets insets = maximum.getWindowInsets();
+            entryWindowMetrics = now + "ms（开机后）, bounds=" + maximum.getBounds() + ", navigationVisible=" + insets.isVisible(android.view.WindowInsets.Type.navigationBars())
+                + ", cutout=" + insets.getDisplayCutout() + ", 原始边衬=mandatory=" + insets.getInsets(android.view.WindowInsets.Type.mandatorySystemGestures()) + ", navigation=" + insets.getInsets(android.view.WindowInsets.Type.navigationBars());
+            return insets;
+        } catch (RuntimeException error) { entryWindowMetrics = now + "ms（开机后）, 读取失败：" + error.getClass().getSimpleName(); return null; }
+    }
+    private record PanelInsetsSample(android.view.WindowInsets insets, long revision) { }
     private void observePanelInsets(View host) {
         CoverWindowInsets.Geometry mounted = windowGeometry(display, Displays.size(display), screenContext.getResources().getDisplayMetrics().density);
-        host.setOnApplyWindowInsetsListener((view, insets) -> { acceptPanelInsets(view, mounted, insets); return view.onApplyWindowInsets(insets); });
-        host.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> acceptPanelInsets(view, mounted, view.getRootWindowInsets()));
+        PanelInsetsSample[] pending = {null};
+        host.setOnApplyWindowInsetsListener((view, insets) -> {
+            Display selected = prefs == null ? null : Displays.selected(this, prefs);
+            if (host == panelHost && selected != null && windows != null && mounted.equals(windowGeometry(selected, Displays.size(selected), createDisplayContext(selected).getResources().getDisplayMetrics().density))) {
+                // A fresh dispatch is evidence; getRootWindowInsets() on a layout-only
+                // callback may still be the old value from an invisible host.
+                long before = coverWindowInsets.sampleRevision();
+                coverWindowInsets.resolve(mounted, readMaximumInsets(windows), controlEditor != null || insets.isVisible(android.view.WindowInsets.Type.ime()));
+                pending[0] = new PanelInsetsSample(new android.view.WindowInsets(insets), coverWindowInsets.sampleRevision());
+                if (acceptPanelInsets(view, mounted, pending[0])) pending[0] = null;
+                if (before != coverWindowInsets.sampleRevision()) scheduleDisplay();
+            }
+            return view.onApplyWindowInsets(insets);
+        });
+        host.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (pending[0] != null && acceptPanelInsets(view, mounted, pending[0])) pending[0] = null;
+        });
     }
-    private void acceptPanelInsets(View host, CoverWindowInsets.Geometry mounted, android.view.WindowInsets insets) {
-        if (instance != this || host != panelHost || !host.isAttachedToWindow() || host.getWidth() <= 0 || host.getHeight() <= 0 || prefs == null || !prefs.enabled()) return;
+    private boolean acceptPanelInsets(View host, CoverWindowInsets.Geometry mounted, PanelInsetsSample sample) {
+        if (instance != this || host != panelHost || prefs == null || !prefs.enabled()) return true;
+        if (!host.isAttachedToWindow() || host.getWidth() <= 0 || host.getHeight() <= 0) return false;
         Display selected = Displays.selected(this, prefs);
-        if (selected == null || selected.getDisplayId() == Display.DEFAULT_DISPLAY || selected.getState() != Display.STATE_ON || getSystemService(KeyguardManager.class).isKeyguardLocked()) return;
+        if (selected == null || selected.getDisplayId() == Display.DEFAULT_DISPLAY || selected.getState() != Display.STATE_ON || getSystemService(KeyguardManager.class).isKeyguardLocked()) return true;
         Point size = Displays.size(selected); float density = createDisplayContext(selected).getResources().getDisplayMetrics().density;
         int[] origin = new int[2]; host.getLocationOnScreen(origin);
         DockGeometry.Box frame = new DockGeometry.Box(origin[0], origin[1], host.getWidth(), host.getHeight());
-        if (coverWindowInsets.observe(mounted, windowGeometry(selected, size, density), host.getDisplay() == null ? -1 : host.getDisplay().getDisplayId(), host.getResources().getDisplayMetrics().density, frame, insets)) scheduleDisplay();
+        if (coverWindowInsets.observe(mounted, windowGeometry(selected, size, density), host.getDisplay() == null ? -1 : host.getDisplay().getDisplayId(), host.getResources().getDisplayMetrics().density, frame, sample.insets(), sample.revision())) scheduleDisplay();
+        return frame.equals(new DockGeometry.Box(0, 0, size.x, size.y));
     }
     void closePanel() { closePanel(false); }
     private void closePanel(boolean preserveOutgoing) {
@@ -1203,6 +1226,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         syncCardStatus();
         if (panelEntry != null) panelEntry.panelVisible(false);
         if (panelEntry != null && windows != null) { try { windows.updateViewLayout(panelEntry, panelEntryParameters()); } catch (RuntimeException ignored) { } }
+        if (instance == this && coverWindowInsets.deferred()) scheduleDisplay();
     }
     private void applyPanelBlur(WindowManager.LayoutParams layout, boolean supported) {
         if (panelCard != null) { panelCard.windowMaterial(layout, visualEffectsAllowed() && !panelDragging, supported); return; }
@@ -1908,7 +1932,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         entryGeometryHistory.addLast(android.text.format.DateFormat.format("MM-dd HH:mm:ss", new java.util.Date()) + " · " + android.os.SystemClock.elapsedRealtime() + "ms · " + reason + "\n" + snapshot);
     }
     String entryGeometryDiagnostics() {
-        return "\n白条几何诊断（显示器像素；rotation 0/1/2/3=0°/90°/180°/270°；边衬按左上右下）\n启动器会话延后边衬更新=" + hubInsetsDeferred + "\n最新采样：" + coverWindowInsets.diagnostics() + "\n当前：\n" + entryGeometrySnapshot()
+        return "\n白条几何诊断（显示器像素；rotation 0/1/2/3=0°/90°/180°/270°；边衬按左上右下）\n启动器会话延后边衬更新=" + hubInsetsDeferred + "\n最近窗口度量读取=" + entryWindowMetrics + "\n最新采样：" + coverWindowInsets.diagnostics() + "\n当前已应用布局：\n" + entryGeometrySnapshot()
             + "\n最近位置变化（布局完成／卸载前采样，最多12条，仅本次服务内存，旧到新）：\n" + (entryGeometryHistory.isEmpty() ? "暂无布局记录" : String.join("\n---\n", entryGeometryHistory)) + "\n";
     }
     private static void setStatus(String value) {
