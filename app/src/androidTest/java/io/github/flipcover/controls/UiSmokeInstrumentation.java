@@ -103,6 +103,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("page-boundaries")) { result.putString("result", new PageBoundaryChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("page-corners")) { result.putString("result", new PageCornerChecks(this).run(Math.max(0, expectedRotation))); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("notification-boundaries")) { result.putString("result", new NotificationBoundaryChecks(this).run(Math.max(0, expectedRotation))); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("control-boundaries")) { result.putString("result", new ControlBoundaryChecks(this).run(Math.max(0, expectedRotation))); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("safe-area")) { result.putString("result", new SafeAreaChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-feedback")) { result.putString("result", new RuntimeFeedbackChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("settings-scale")) { result.putString("result", new SettingsScaleChecks(this).run()); finish(Activity.RESULT_OK, result); return; }

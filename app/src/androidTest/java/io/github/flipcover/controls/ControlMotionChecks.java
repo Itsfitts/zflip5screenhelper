@@ -75,7 +75,8 @@ final class ControlMotionChecks {
             main(() -> {
                 Prefs prefs = new Prefs(activity); prefs.data.edit().clear().putBoolean("panel_media", true).putInt("panel_columns", 4).commit();
                 List<String> actions = new ArrayList<>(); for (ActionCatalog.Action action : ActionCatalog.BUILT_INS) actions.add(action.id()); prefs.saveActions("panel", actions);
-                CoverService owner = new CoverService(); owner.screenContext = activity; owner.prefs = prefs;
+                CoverService owner = new CoverService(); owner.screenContext = activity; owner.prefs = prefs; owner.display = activity.getDisplay();
+                try { var attach = android.content.ContextWrapper.class.getDeclaredMethod("attachBaseContext", android.content.Context.class); attach.setAccessible(true); attach.invoke(owner, activity); } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
                 int width = activity.getResources().getDisplayMetrics().widthPixels, height = activity.getResources().getDisplayMetrics().heightPixels;
                 owner.placement = new DockGeometry.Placement(new DockGeometry.Box(0, 0, 0, 0), new DockGeometry.Box(0, 0, 0, 0), new DockGeometry.Box(0, 38, width, height - 104), DockGeometry.TOP, true);
                 card = owner.buildPanelCard("controls", new DockGeometry.Box(0, 0, width, height), 38); activity.setContentView(card);

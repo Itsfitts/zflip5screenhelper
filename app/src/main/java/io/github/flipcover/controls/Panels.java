@@ -135,20 +135,19 @@ final class Panels {
             dashboard.sliders = sliders; dashboard.addView(sliders);
         }
         if (owner.prefs.panelMedia()) { dashboard.media = new MediaCardView(owner, true, preview); controlScroll.module(5, dashboard.media.controlFeedback()); dashboard.addView(dashboard.media); }
-        dashboard.addView(dashboard.positionHint);
         if (!actions.isEmpty() || dashboard.sliders != null || dashboard.media != null) body.addView(dashboard, new LinearLayout.LayoutParams(-1, 0, 1)); updateStates();
     }
     private boolean roomyLabels() { return owner.prefs.panelLabelSize() == 2 || owner.prefs.panelDensity() == 2; }
-    /** Compact labels keep side tools; large type and genuinely narrow widths can stack. */
+    /** Tool placement is a user choice; narrower safe areas compact the same layout. */
     private final class ControlDashboard extends android.view.ViewGroup {
         private static final int VISIBLE_ROWS = 4;
         private final java.util.ArrayList<Tile> tiles = new java.util.ArrayList<>();
         private final ControlScrollView gridScroll;
         private final android.view.ViewGroup grid;
         LinearLayout sliders; MediaCardView media;
-        int columns, gridWidth, gridHeight, sliderWidth, sliderHeight, toolWidth, toolHeight, gap, hintHeight;
+        int columns, gridWidth, gridHeight, sliderWidth, sliderHeight, toolWidth, toolHeight, gap, sidePadding;
         boolean stacked;
-        final TextView positionHint, labelSizer;
+        final TextView labelSizer;
         ControlDashboard() {
             super(context);
             grid = new android.view.ViewGroup(context) {
@@ -159,22 +158,30 @@ final class Panels {
             };
             grid.setTag("control-tile-grid"); gridScroll = new ControlScrollView(context); controlScroll = gridScroll; gridScroll.setTag("control-grid-scroll"); gridScroll.addView(grid); addView(gridScroll);
             labelSizer = Ui.text(context, roomyLabels() ? "控\n制" : "控", PanelUi.labelSize(owner.prefs.panelLabelSize()), Ui.TEXT); labelSizer.setLines(roomyLabels() ? 2 : 1);
-            positionHint = Ui.text(context, "空间不足，工具区已移到下方", 10, Ui.MUTED); positionHint.setTag("control-tools-hint"); positionHint.setVisibility(GONE);
         }
         void addTile(Tile tile) { tiles.add(tile); grid.addView(tile); }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
             int width = MeasureSpec.getSize(widthSpec), requested = owner.prefs.panelColumns(), density = owner.prefs.panelDensity(); gap = Ui.dp(context, switch (density) { case 0 -> 4; case 2 -> 8; default -> 6; });
             boolean tools = sliders != null || media != null;
             sliderWidth = sliders == null ? 0 : Ui.dp(context, 44) * sliders.getChildCount() + Ui.dp(context, 5) * (sliders.getChildCount() - 1);
-            int sidePadding = tools ? Ui.dp(context, 8) : 0;
+            sidePadding = tools ? Ui.dp(context, 8) : 0;
             toolWidth = tools ? Math.max(sliderWidth, media == null ? 0 : Ui.dp(context, 93)) + sidePadding : 0;
-            int sideWidth = width - toolWidth;
             int minimumFace = Ui.dp(context, 23) + Ui.dp(context, 12) + Ui.dp(context, 4);
-            int minimumCell = Math.max(Ui.dp(context, roomyLabels() ? 48 : 28), minimumFace + Ui.dp(context, 4));
             String position = owner.prefs.panelToolsPosition();
-            stacked = tools && (tiles.isEmpty() || position.equals("bottom") || sideWidth / requested < minimumCell); gridWidth = stacked ? width : sideWidth;
-            boolean fallback = tools && !tiles.isEmpty() && stacked && position.equals("side"); positionHint.setVisibility(fallback ? VISIBLE : GONE); hintHeight = 0;
-            if (fallback) { positionHint.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)); hintHeight = positionHint.getMeasuredHeight() + gap; }
+            stacked = tools && (tiles.isEmpty() || position.equals("bottom"));
+            if (tools && !stacked && width - toolWidth < requested * minimumFace) {
+                sidePadding = Ui.dp(context, 4);
+                int compactSliders = sliders == null ? 0 : Ui.dp(context, 32) * sliders.getChildCount() + Ui.dp(context, 5) * (sliders.getChildCount() - 1);
+                int compactTools = Math.max(compactSliders, media == null ? 0 : Ui.dp(context, 72)) + sidePadding;
+                toolWidth = Math.min(toolWidth, Math.max(compactTools, width - requested * minimumFace));
+            }
+            if (!stacked) toolWidth = Math.min(toolWidth, Math.max(0, width - requested));
+            if (sliders != null) {
+                if (!stacked) sliderWidth = Math.max(1, Math.min(sliderWidth, toolWidth - sidePadding));
+                int count = sliders.getChildCount(), gaps = Ui.dp(context, 5) * (count - 1);
+                for (int i = 0; i < count; i++) sliders.getChildAt(i).getLayoutParams().width = Math.max(1, (sliderWidth - gaps) * (i + 1) / count - (sliderWidth - gaps) * i / count);
+            }
+            gridWidth = stacked ? width : width - toolWidth;
             int cellWidth = gridWidth / requested, labelHeight = 0;
             if (owner.prefs.panelLabels() && !tiles.isEmpty()) {
                 // Reserve the configured line count, independent of the current action list.
@@ -187,13 +194,13 @@ final class Panels {
             int betweenTools = sliders != null && media != null ? gap : 0, rowCount = tiles.isEmpty() ? 0 : VISIBLE_ROWS;
             toolHeight = stacked ? Math.max(sliderMinimum, mediaMinimum) : sliderMinimum + betweenTools + mediaMinimum;
             int gridGap = tools && rowCount > 0 && stacked ? gap : 0;
-            int natural = (stacked ? rowCount * minimumRow + gridGap + toolHeight : Math.max(toolHeight, rowCount * minimumRow)) + hintHeight;
+            int natural = stacked ? rowCount * minimumRow + gridGap + toolHeight : Math.max(toolHeight, rowCount * minimumRow);
             // Reserve the full glyph and its state badge before trying to fit the viewport.
             // The outer ScrollView handles short screens instead of crushing the icon.
-            int minimum = (stacked ? rowCount * compactRow + gridGap + toolHeight : Math.max(toolHeight, rowCount * compactRow)) + hintHeight;
+            int minimum = stacked ? rowCount * compactRow + gridGap + toolHeight : Math.max(toolHeight, rowCount * compactRow);
             if (controlViewportHeight > 0) natural = Math.max(minimum, Math.min(natural, controlViewportHeight));
             int height = resolveSize(natural, heightSpec); columns = requested;
-            gridHeight = rowCount == 0 ? 0 : stacked ? Math.max(1, height - hintHeight - gridGap - toolHeight) : height - hintHeight;
+            gridHeight = rowCount == 0 ? 0 : stacked ? Math.max(1, height - gridGap - toolHeight) : height;
             gridHeight = gridHeight / VISIBLE_ROWS * VISIBLE_ROWS;
             for (Tile tile : tiles) {
                 int cellHeight = gridHeight / VISIBLE_ROWS; tile.label.getLayoutParams().height = labelHeight;
@@ -212,9 +219,9 @@ final class Panels {
                 tile.measure(MeasureSpec.makeMeasureSpec(cellWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(cellHeight, MeasureSpec.EXACTLY));
             }
             gridScroll.measure(MeasureSpec.makeMeasureSpec(gridWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(gridHeight, MeasureSpec.EXACTLY));
-            sliderHeight = sliders == null ? 0 : stacked ? toolHeight : Math.max(sliderMinimum, Math.min(Ui.dp(context, 136), Math.min(Math.round(height * .5f), height - hintHeight - betweenTools - mediaMinimum)));
+            sliderHeight = sliders == null ? 0 : stacked ? toolHeight : Math.max(sliderMinimum, Math.min(Ui.dp(context, 136), Math.min(Math.round(height * .5f), height - betweenTools - mediaMinimum)));
             if (sliders != null) sliders.measure(MeasureSpec.makeMeasureSpec(sliderWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(sliderHeight, MeasureSpec.EXACTLY));
-            int mediaHeight = stacked ? toolHeight : height - hintHeight - sliderHeight - betweenTools;
+            int mediaHeight = stacked ? toolHeight : height - sliderHeight - betweenTools;
             if (media != null) media.measure(MeasureSpec.makeMeasureSpec(Math.max(1, mediaWidth), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(Math.max(1, media.condensed() ? mediaMinimum : mediaHeight), MeasureSpec.EXACTLY)); setMeasuredDimension(width, height);
         }
         @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
@@ -225,12 +232,11 @@ final class Panels {
                 if (sliders != null) sliders.layout(sliderX, top, sliderX + sliderWidth, top + sliderHeight);
                 if (media != null) media.layout(mediaX, top, mediaX + media.getMeasuredWidth(), top + media.getMeasuredHeight());
             } else {
-                int x = owner.prefs.leftHand() ? 0 : gridWidth + Ui.dp(context, 8);
+                int x = owner.prefs.leftHand() ? 0 : gridWidth + sidePadding;
                 if (sliders != null) sliders.layout(x, 0, x + sliderWidth, sliderHeight);
                 int top = sliderHeight + (sliders != null && media != null ? gap : 0);
                 if (media != null) media.layout(x, top, x + media.getMeasuredWidth(), top + media.getMeasuredHeight());
             }
-            if (positionHint.getVisibility() == VISIBLE) positionHint.layout(0, getHeight() - positionHint.getMeasuredHeight(), getWidth(), getHeight());
         }
     }
     void updateStates() {

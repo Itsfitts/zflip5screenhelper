@@ -58,7 +58,7 @@ final class ControlTypographyChecks {
                     }
                 }
             });
-            return "PASS: " + cases[0] + " font/weight/layout cases; 240/340/480 dpi; independent label/spacing presets; full-size glyphs; mismatched SP metrics; home, preview, editor/search, detail/media/input; source and notification isolation; 3/4/5 columns, both orientations";
+            return "PASS: " + cases[0] + " font/weight/layout cases; 240/340/480 dpi; independent label/spacing presets; bounded glyphs; mismatched SP metrics; home, preview, editor/search, detail/media/input; source and notification isolation; 3/4/5 columns, both orientations";
         } finally { test.runOnMainSync(activity::finish); }
     }
     private static void mismatchedFontMetrics(Context source) {
@@ -80,7 +80,8 @@ final class ControlTypographyChecks {
         ViewGroup grid = panel.findViewWithTag("control-tile-grid");
         for (int i = 0; i < grid.getChildCount(); i++) {
             ViewGroup tile = (ViewGroup) grid.getChildAt(i), face = (ViewGroup) tile.getChildAt(0); View glyph = face.getChildAt(0), label = tile.getChildAt(1);
-            require(glyph.getWidth() == Ui.dp(glyph.getContext(), 23) && glyph.getHeight() == glyph.getWidth(), "text crushes glyph: " + sample);
+            require(glyph.getWidth() > 0 && glyph.getWidth() <= Ui.dp(glyph.getContext(), 23) && glyph.getHeight() == glyph.getWidth(), "compact glyph stays square and bounded: " + sample);
+            if (face.getWidth() >= Ui.dp(face.getContext(), 39) && face.getHeight() >= Ui.dp(face.getContext(), 39)) require(glyph.getWidth() == Ui.dp(glyph.getContext(), 23), "available space retains the full glyph: " + sample);
             require(face.getTop() >= 0 && face.getBottom() <= label.getTop() && label.getBottom() <= tile.getHeight(), "tile content overlaps or clips: " + sample);
         }
     }

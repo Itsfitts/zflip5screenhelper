@@ -1103,7 +1103,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (header instanceof PanelActionHeader splitting) splitting.actions();
         if (page.equals("controls")) panels.bindControlHeader(header);
         Panels contentPanels = panels;
-        ScrollView scroll = page.equals("notifications") ? new NotificationScrollView(context) : new ScrollView(context) {
+        ScrollView scroll = page.equals("notifications") ? new NotificationScrollView(context) : new FadingScrollView(context) {
+            @Override protected boolean fadeBottom() { return page.equals("controls") && super.fadeBottom(); }
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 if (page.equals("controls") && MeasureSpec.getMode(heightSpec) != MeasureSpec.UNSPECIFIED) contentPanels.controlViewportHeight(MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom());
                 super.onMeasure(widthSpec, heightSpec);

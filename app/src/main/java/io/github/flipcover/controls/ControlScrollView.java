@@ -7,10 +7,9 @@ import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.widget.ScrollView;
 
 /** Native scrolling first, then one grid rubber band. Input and layout never deform. */
-final class ControlScrollView extends ScrollView {
+final class ControlScrollView extends FadingScrollView {
     final ControlElastic elastic = new ControlElastic();
     private final float density, slop;
     private final ControlFeedback[] modules = new ControlFeedback[6];
@@ -69,7 +68,7 @@ final class ControlScrollView extends ScrollView {
         return super.overScrollBy(dx, dy, x, y, rangeX, rangeY, 0, 0, touch);
     }
     void paintMatrix(Matrix result) { float strain = Math.abs(elastic.grid()) / ControlElastic.LIMIT; result.setScale(1 - strain * .012f, 1 + strain * .025f, getWidth() / 2f, elastic.edge() < 0 ? getHeight() : 0); result.postTranslate(0, elastic.grid() * density); }
-    @Override protected void dispatchDraw(Canvas canvas) { int checkpoint = canvas.save(); canvas.translate(0, elastic.grid() * density); float strain = Math.abs(elastic.grid()) / ControlElastic.LIMIT; canvas.scale(1 - strain * .012f, 1 + strain * .025f, getWidth() / 2f, getScrollY() + (elastic.edge() < 0 ? getHeight() : 0)); super.dispatchDraw(canvas); canvas.restoreToCount(checkpoint); }
+    @Override protected void drawScrolledContent(Canvas canvas) { int checkpoint = canvas.save(); canvas.translate(0, elastic.grid() * density); float strain = Math.abs(elastic.grid()) / ControlElastic.LIMIT; canvas.scale(1 - strain * .012f, 1 + strain * .025f, getWidth() / 2f, getScrollY() + (elastic.edge() < 0 ? getHeight() : 0)); super.drawScrolledContent(canvas); canvas.restoreToCount(checkpoint); }
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); for (android.view.ViewParent parent = getParent(); parent instanceof View ancestor; parent = ancestor.getParent()) { if (ancestor instanceof PanelSurface) scene = ancestor; if (ancestor instanceof InterfaceCard) { scene = ancestor; break; } } }
     @Override protected void onDetachedFromWindow() { reset(); scene = null; super.onDetachedFromWindow(); }
     @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) { super.onSizeChanged(w, h, oldw, oldh); if (oldw != 0 && (w != oldw || h != oldh)) { if (touching) { long now = android.os.SystemClock.uptimeMillis(); MotionEvent cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0, 0, 0); cancelChildren(cancel); cancel.recycle(); } reset(); blocked = true; } }

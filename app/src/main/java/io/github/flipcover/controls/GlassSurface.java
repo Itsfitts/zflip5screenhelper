@@ -227,9 +227,9 @@ final class GlassSurface extends Drawable implements View.OnAttachStateChangeLis
             if (owner instanceof InterfaceCard card && card.effectSafeArea() != null) {
                 DockGeometry.Box safe = card.effectSafeArea(); shader.setFloatUniform("safeArea", safe.x() - box.left, safe.y() - box.top, safe.right() - box.left, safe.bottom() - box.top); shader.setFloatUniform("unsafeBand", 20 * density);
             } else { shader.setFloatUniform("safeArea", 0, 0, box.width(), box.height()); shader.setFloatUniform("unsafeBand", 0); }
-            // Notifications keep a clear page interior. Their reserved bottom
-            // strip must not reveal sharp desktop icons after the list ends.
-            if (owner instanceof InterfaceCard card && card.definition().id().equals("notifications") && card.safeArea() != null) {
+            // Reading viewports end before the page; use the existing strong
+            // backdrop through their bottom reservation, independently of the rim.
+            if (owner instanceof InterfaceCard card && card.contentFadesLocally() && card.safeArea() != null) {
                 float bottom = card.safeArea().bottom() - box.top; shader.setFloatUniform("readingEdge", bottom - Ui.dp(owner.getContext(), 16), bottom);
             } else shader.setFloatUniform("readingEdge", 0, 0);
             shader.setFloatUniform("readable",launcherPlate() || role == Role.FOLDER || role == Role.LAUNCHER_SEARCH || role == Role.TASK_ACTION || role == Role.CARD || role == Role.TEXT || role == Role.TILE || role == Role.EDITOR || role == Role.INPUT ? 1 : 0);

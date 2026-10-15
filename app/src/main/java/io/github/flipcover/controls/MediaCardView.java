@@ -91,7 +91,11 @@ final class MediaCardView extends LinearLayout {
         return condensed ? Math.max(Ui.dp(getContext(), 48), wordsHeight) : wordsHeight + Ui.dp(getContext(), 26 + 3 + 28);
     }
     @Override protected void onMeasure(int width, int height) {
-        if (compact) { int available = MeasureSpec.getSize(height), cover = Math.max(Ui.dp(getContext(), 26), Math.min(Ui.dp(getContext(), 40), available - minimumCardHeight(MeasureSpec.getSize(width)) + Ui.dp(getContext(), 26))); artwork.getLayoutParams().width = artwork.getLayoutParams().height = cover; }
+        if (compact) {
+            int available = MeasureSpec.getSize(height), cover = Math.max(Ui.dp(getContext(), 26), Math.min(Ui.dp(getContext(), 40), available - minimumCardHeight(MeasureSpec.getSize(width)) + Ui.dp(getContext(), 26)));
+            int inner = Math.max(1, MeasureSpec.getSize(width) - getPaddingLeft() - getPaddingRight()), outputWidth = artRow.getChildAt(2).getLayoutParams().width;
+            artwork.getLayoutParams().width = artwork.getLayoutParams().height = Math.min(cover, Math.max(1, inner - outputWidth));
+        }
         else {
             int inner = Math.max(1, MeasureSpec.getSize(width) - getPaddingLeft() - getPaddingRight()), fixed = getPaddingTop() + getPaddingBottom();
             for (int i = 0; i < getChildCount(); i++) { View child = getChildAt(i); if (child == artRow || child.getVisibility() == GONE) continue; measureChild(child, MeasureSpec.makeMeasureSpec(inner, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)); fixed += child.getMeasuredHeight(); }

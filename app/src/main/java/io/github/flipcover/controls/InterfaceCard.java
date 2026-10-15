@@ -140,13 +140,14 @@ final class InterfaceCard extends FrameLayout {
         if (child != content || localSafeArea == null || !definition.useSafeArea()) return super.drawChild(canvas, child, drawingTime);
         int clip = canvas.save(); canvas.clipRect(localSafeArea.x(), localSafeArea.y(), localSafeArea.right(), localSafeArea.bottom());
         DockGeometry.Box safe = effectSafeArea();
-        if (definition.id().equals("notifications") || safe.bottom() >= getHeight()) { boolean drawn = super.drawChild(canvas, child, drawingTime); canvas.restoreToCount(clip); return drawn; }
+        if (contentFadesLocally() || safe.bottom() >= getHeight()) { boolean drawn = super.drawChild(canvas, child, drawingTime); canvas.restoreToCount(clip); return drawn; }
         int band = Ui.dp(getContext(), 16); int checkpoint = canvas.saveLayer(0, 0, getWidth(), getHeight(), null);
         boolean drawn = super.drawChild(canvas, child, drawingTime);
         if (maskBottom != safe.bottom()) { maskBottom = safe.bottom(); contentMask.setShader(new android.graphics.LinearGradient(0, maskBottom - band, 0, maskBottom, Color.BLACK, Color.TRANSPARENT, android.graphics.Shader.TileMode.CLAMP)); contentMask.setBlendMode(android.graphics.BlendMode.DST_IN); }
         canvas.drawRect(0, 0, getWidth(), getHeight(), contentMask); canvas.restoreToCount(checkpoint); canvas.restoreToCount(clip); return drawn;
     }
     Material material() { return material; }
+    boolean contentFadesLocally() { return definition.id().equals("notifications") || definition.id().equals("controls"); }
     PanelGlassSession glass() { return glass; }
     String glassDiagnostics() { return glass == null ? "玻璃背景：" + glassState + "\n当前纹理 0B\n" : glass.diagnostics(); }
     boolean ready() { return !closed && (glass == null || !glass.preparing()); }
