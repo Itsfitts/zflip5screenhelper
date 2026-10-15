@@ -18,6 +18,8 @@ public final class SystemOutputActivity extends Activity {
         Ui.add(body, Ui.heading(this, "系统媒体输出", 16)); Ui.add(body, Ui.text(this, "由系统选择输出设备", 12, Ui.MUTED)); Ui.add(body, Ui.button(this, "重新打开选择器", this::showOutput));
         Ui.add(body, Ui.button(this, "声音设置", () -> { try { startActivity(new Intent(Settings.ACTION_SOUND_SETTINGS), android.app.ActivityOptions.makeBasic().setLaunchDisplayId(expected).toBundle()); } catch (RuntimeException ignored) { } }));
         Ui.add(body, Ui.button(this, "关闭", this::finish)); setContentView(body);
+        body.setOnApplyWindowInsetsListener((view, insets) -> { android.graphics.Insets safe = CoverSafeArea.activityInsets(this, view, insets); int gap = Ui.dp(this, 12); view.setPadding(safe.left + gap, safe.top + gap, safe.right + gap, safe.bottom + gap); return insets; });
+        body.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> { if (r - l != or - ol || b - t != ob - ot) view.requestApplyInsets(); }); body.requestApplyInsets();
     }
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); if (focused && !isFinishing() && !requested) { requested = true; showOutput(); } }
     private void showOutput() {

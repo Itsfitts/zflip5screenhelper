@@ -74,8 +74,11 @@ public final class DockGeometry {
         return Math.round(Math.round(20 * density) * statusScale / 100f) + Math.round(gap * density);
     }
     public static Placement panelEntry(Placement anchor, Placement dock, int width, int height, List<Box> cutouts, float density, int homeInset, String position, int topInset) {
+        return panelEntry(anchor, dock, width, height, cutouts, density, homeInset, position, topInset, null);
+    }
+    static Placement panelEntry(Placement anchor, Placement dock, int width, int height, List<Box> cutouts, float density, int homeInset, String position, int topInset, Box available) {
         int margin = Math.max(4, Math.round(3 * density)), thickness = Math.max(1, Math.round((topInset > 0 ? 24 : 16) * density));
-        Box safe = panelContent(dock, width, height, cutouts), touch = dock.touch();
+        Box safe = available == null ? panelContent(dock, width, height, cutouts) : available, touch = dock.touch();
         boolean topEntry = !position.equals("bottom_right"), leftEntry = position.equals("top_left");
         int right = safe.right() - margin, left = safe.x() + margin;
         int length = Math.max(1, Math.round(safe.width() * .38f));
@@ -174,6 +177,13 @@ public final class DockGeometry {
     }
     /** Content ends at the physical notch/visible dock, not at an oversized touch target. */
     public static Box panelContent(Placement p, int width, int height, List<Box> cutouts) {
+        Box physical = physicalContent(width, height, cutouts);
+        int left = physical.x(), top = physical.y(), right = physical.right(), bottom = physical.bottom();
+        Box v = p.visual();
+        switch (p.edge()) { case TOP -> top = Math.max(top, v.bottom()); case LEFT -> left = Math.max(left, v.right()); case RIGHT -> right = Math.min(right, v.x()); default -> bottom = Math.min(bottom, v.y()); }
+        return new Box(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
+    }
+    static Box physicalContent(int width, int height, List<Box> cutouts) {
         int left = 0, top = 0, right = width, bottom = height;
         for (Box c : cutouts) {
             if (c.y() == 0 && c.height() < height / 3) top = Math.max(top, c.bottom());
@@ -181,8 +191,6 @@ public final class DockGeometry {
             if (c.x() == 0 && c.width() < width / 3) left = Math.max(left, c.right());
             if (c.right() >= width && c.width() < width / 3) right = Math.min(right, c.x());
         }
-        Box v = p.visual();
-        switch (p.edge()) { case TOP -> top = Math.max(top, v.bottom()); case LEFT -> left = Math.max(left, v.right()); case RIGHT -> right = Math.min(right, v.x()); default -> bottom = Math.min(bottom, v.y()); }
         return new Box(left, top, Math.max(1, right - left), Math.max(1, bottom - top));
     }
     /** Non-touchable status spans the safe top, preserving left/right groups regardless of entry position. */

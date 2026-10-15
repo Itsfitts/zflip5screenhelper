@@ -48,6 +48,38 @@ public final class Prefs {
     boolean systemControlsDisabled() { return data.getBoolean("system_controls_disabled", false); }
     void systemControlsDisabled(boolean disabled) { data.edit().putBoolean("system_controls_disabled", disabled).apply(); }
     public int displayId() { return data.getInt("display", -1); }
+    // Calibration is device/display-local, like display selection; never imported from another phone.
+    SafeAreaGeometry.Profile safeArea(int rotation) {
+        try {
+            JSONObject value = new JSONObject(data.getString("safe_area_" + rotation, ""));
+            SafeAreaGeometry.Edges edges = new SafeAreaGeometry.Edges(value.getInt("left"), value.getInt("top"), value.getInt("right"), value.getInt("bottom"));
+            return new SafeAreaGeometry.Profile(value.getBoolean("manual"), value.getInt("width"), value.getInt("height"), value.getString("display"), edges);
+        } catch (JSONException | ClassCastException error) { return null; }
+    }
+    boolean saveSafeArea(int rotation, SafeAreaGeometry.Profile profile) {
+        if (rotation < 0 || rotation > 3 || !profile.edges().valid(profile.width(), profile.height())) throw new IllegalArgumentException("安全区过小或边界无效");
+        try {
+            SafeAreaGeometry.Edges e = profile.edges();
+            JSONObject value = new JSONObject().put("manual", profile.manual()).put("width", profile.width()).put("height", profile.height()).put("display", profile.display())
+                .put("left", e.left()).put("top", e.top()).put("right", e.right()).put("bottom", e.bottom());
+            return data.edit().putString("safe_area_" + rotation, value.toString()).commit();
+        } catch (JSONException error) { throw new IllegalArgumentException(error); }
+    }
+    boolean safeAreaMode(int rotation, boolean manual) {
+        SafeAreaGeometry.Profile old = safeArea(rotation);
+        return old == null ? !manual : saveSafeArea(rotation, new SafeAreaGeometry.Profile(manual, old.width(), old.height(), old.display(), old.edges()));
+    }
+    boolean resetSafeArea(int rotation) {
+        SharedPreferences.Editor edit = data.edit();
+        if (rotation < 0) for (int i = 0; i < 4; i++) edit.remove("safe_area_" + i); else edit.remove("safe_area_" + rotation);
+        return edit.commit();
+    }
+    boolean safeAreaGuides() { return data.getBoolean("safe_area_guides", false); }
+    String safeAreaSummary() {
+        List<String> manual = new ArrayList<>();
+        for (int i = 0; i < 4; i++) { SafeAreaGeometry.Profile p = safeArea(i); if (p != null && p.manual()) manual.add(i * 90 + "°"); }
+        return manual.isEmpty() ? "全部自动" : String.join("、", manual) + " 手动" + (manual.size() < 4 ? " · 其余自动" : "");
+    }
     /** Local settings readability; independent of runtime layout exports and widget editor sizing. */
     int settingsScale() { return Math.max(70, Math.min(130, data.getInt("settings_scale", BuildConfig.DEFAULTS_SETTINGS_SCALE))); }
     void settingsScale(int percent) { if (percent < 70 || percent > 130) throw new IllegalArgumentException("设置缩放范围为70%–130%"); data.edit().putInt("settings_scale", percent).apply(); }

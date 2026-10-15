@@ -16,7 +16,7 @@ import rikka.shizuku.Shizuku;
 
 public final class ShizukuBridge {
     // Refresh the user service when the operation whitelist changes within a validation version.
-    private static final int SERVICE_REVISION = 6;
+    private static final int SERVICE_REVISION = 7;
     record Snapshot(android.graphics.Bitmap bitmap, String message, boolean retryable) {
         Snapshot(android.graphics.Bitmap bitmap, String message) { this(bitmap, message, false); }
     }

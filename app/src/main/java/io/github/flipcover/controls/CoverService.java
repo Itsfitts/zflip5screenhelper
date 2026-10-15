@@ -176,6 +176,15 @@ public final class CoverService extends AccessibilityService implements DisplayM
         @Override public void onTorchModeUnavailable(String cameraId) { if (cameraId.equals(torchCamera)) { torchOn = null; if (panels != null) panels.updateStates(); if (detailContent!=null) detailContent.torchChanged(); } }
     };
     private int navigationInsetPixels;
+    private CoverSafeArea.Snapshot safeArea;
+    private SafeAreaGuideView safeAreaGuide;
+    SafeAreaCalibration safeAreaCalibration;
+    private final java.util.List<Runnable> safeAreaObservers = new java.util.ArrayList<>();
+    void observeSafeArea(Runnable callback) { if (!safeAreaObservers.contains(callback)) safeAreaObservers.add(callback); }
+    void unobserveSafeArea(Runnable callback) { safeAreaObservers.remove(callback); }
+    CoverSafeArea.Snapshot safeAreaSnapshot() { return safeArea; }
+    DockGeometry.Placement safeAreaDock() { return dockPlacement; }
+    void refreshSafeArea() { reconcile(true); }
     private final Runnable updateDisplay = () -> reconcile(false);
     private final Runnable settledDisplay = () -> { returningToClock = false; reconcile(false); };
     private String lastScreenEvent = "尚未收到";
@@ -204,6 +213,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         handleBridgeChanged(bridge.granted(), bridge.connected());
     };
     private void handleBridgeChanged(boolean granted, boolean connected) {
+        if (safeAreaCalibration != null) { if (!connected) safeAreaCalibration.finish(false); else safeAreaCalibration.recover(); }
         if (systemControlGuard != null) systemControlGuard.changed();
         boolean ready = granted && connected;
         if (hub != null) { if (!ready) hub.recentFailure("Shizuku 连接中断"); else requestHubTasks(null); }
@@ -225,6 +235,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (reopen && instance == this && panel != null && panelPage.equals("controls")) showDetails("rotation", null);
     };
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (preferences, key) -> {
+        if ("safe_area_rotation_restore".equals(key)) return;
+        if ("safe_area_guides".equals(key)) { main.post(this::syncSafeAreaGuide); return; }
         if ("rotation_reverse_landscape".equals(key)) { main.removeCallbacks(updateRotationLayout); main.post(updateRotationLayout); return; }
         if ("dock_auto_return_first_page".equals(key)) { main.post(() -> { if (dock != null) dock.scheduleAutoReturn(); }); return; }
         if (key == null || key.equals("enabled") || key.equals("display")) appLaunchGeneration++;
@@ -246,6 +258,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             lastScreenEvent = android.os.SystemClock.elapsedRealtime() / 1000 + "s · " + action;
             if (systemControlGuard != null && (Intent.ACTION_SCREEN_ON.equals(intent.getAction()) || Intent.ACTION_USER_PRESENT.equals(intent.getAction()))) systemControlGuard.changed();
             if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                if (safeAreaCalibration != null) safeAreaCalibration.finish(false);
                 appLaunchGeneration++;
                 dockVisibility.reset();
                 resetStatusApplication();
@@ -274,7 +287,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         if (!main.hasCallbacks(restoreFromLauncherCard)) main.post(restoreFromLauncherCard);
     }
     @Override protected void onServiceConnected() {
-        instance = this; prefs = new Prefs(this); automaticRotation = new CoverRotation(this); prefs.data.registerOnSharedPreferenceChangeListener(preferenceListener);
+        instance = this; prefs = new Prefs(this); automaticRotation = new CoverRotation(this); safeAreaCalibration = new SafeAreaCalibration(this); prefs.data.registerOnSharedPreferenceChangeListener(preferenceListener);
         closeForegroundQuery();
         foregroundQuery = new CoverWindowQuery(Executors.newSingleThreadExecutor(), main::post, id -> CoverWindowQuery.readWindows(this, id), this::foregroundWindows);
         try { systemUiTitle = getPackageManager().getApplicationInfo("com.android.systemui", 0).loadLabel(getPackageManager()); } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { systemUiTitle = null; }
@@ -551,7 +564,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     private void reconcile(boolean force) {
         if (instance != this || prefs == null || screenshotInProgress) return;
-        if (automaticRotation != null) automaticRotation.checkActive();
+        if (safeAreaCalibration != null) safeAreaCalibration.displayChanged();
+        if (automaticRotation != null && (safeAreaCalibration == null || !safeAreaCalibration.blocksRotation())) automaticRotation.checkActive();
         try {
             Display selected = Displays.selected(this, prefs);
             boolean locked = getSystemService(KeyguardManager.class).isKeyguardLocked();
@@ -601,6 +615,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
             if (prefs.statusEnabled()) { statusBar = new StatusBarView(screenContext, prefs); syncCardStatus(); windows.addView(statusBar, statusParameters()); }
             panelEntry = new PanelEntryView(screenContext, prefs, panelEntryPlacement, chromeListener());
             windows.addView(panelEntry, panelEntryParameters());
+            syncSafeAreaGuide();
             entryGeometryInputs = computedEntryGeometryInputs;
             scheduleEntryGeometryCapture();
             CoverApp.widgets(this).safeArea(selected, size.x, size.y, widgetArea);
@@ -615,16 +630,10 @@ public final class CoverService extends AccessibilityService implements DisplayM
         float density = screenContext.getResources().getDisplayMetrics().density;
         ArrayList<DockGeometry.Box> cutouts = new ArrayList<>();
         if (selected.getCutout() != null) for (android.graphics.Rect r : selected.getCutout().getBoundingRects()) cutouts.add(new DockGeometry.Box(r.left, r.top, r.width(), r.height()));
-        placement = DockGeometry.resolve(size.x, size.y, cutouts, density, prefs.corner(rotation), prefs.widthRatio(), prefs.heightRatio(), prefs.data.getBoolean("auto_placement", true), rotation, prefs.reverseLandscapeLayout(rotation));
-        DockGeometry.Placement entryAnchor = placement;
-        int panelHomeInset = Math.max(mandatory.bottom, navigation.bottom);
-        navigationInsetPixels = 0;
-        if (prefs.avoidNavigation()) {
-            android.graphics.Insets safe = android.graphics.Insets.max(mandatory, navigationBounds);
-            navigationInsetPixels = switch (placement.edge()) { case DockGeometry.TOP -> safe.top; case DockGeometry.LEFT -> safe.left; case DockGeometry.RIGHT -> safe.right; default -> safe.bottom; };
-            placement = DockGeometry.avoidEdge(placement, size.x, size.y, Math.max(navigationInsetPixels, Ui.dp(screenContext, 16)), Ui.dp(screenContext, prefs.navigationGap()));
-        }
-        if (!prefs.avoidNavigation()) placement = DockGeometry.edgeTouch(placement, size.x, size.y);
+        safeArea = CoverSafeArea.resolve(screenContext, prefs, selected, size, systemInsets, safeAreaCalibration == null ? null : safeAreaCalibration.preview(selected));
+        CoverSafeArea.Chrome chrome = CoverSafeArea.chrome(screenContext, prefs, safeArea, mandatory, navigation, navigationBounds);
+        placement = chrome.dock(); DockGeometry.Placement entryAnchor = chrome.anchor();
+        int panelHomeInset = chrome.homeInset(); navigationInsetPixels = chrome.navigationInset(); systemInsets = safeArea.effective();
         DockGeometry.Box widgetArea = resolveContentGeometry(size, rotation, cutouts, entryAnchor, systemInsets, panelHomeInset);
         computedEntryGeometryInputs = "显示器=" + selected.getDisplayId() + ", rotation=" + rotation + ", size=" + size.x + "×" + size.y + ", density=" + density
             + "\n计算所用最大窗口度量=" + entryWindowMetrics + "\n" + coverWindowInsets.diagnostics()
@@ -634,8 +643,9 @@ public final class CoverService extends AccessibilityService implements DisplayM
             + "\n入口设置=" + prefs.entryPosition(rotation) + ", 自动定位=" + prefs.data.getBoolean("auto_placement", true) + ", 导航避让=" + prefs.avoidNavigation() + ", 额外内移dp=" + prefs.navigationGap()
             + "\n快捷栏计算绘制=" + placement.visual() + ", 触摸=" + placement.touch()
             + "\n白条计算绘制带=" + panelEntryPlacement.visual() + ", 触摸=" + panelEntryPlacement.touch()
-            + "\n正文边界=" + placement.panel() + ", 背板安全边界=" + cardSafeFrame;
-        android.graphics.Insets handleInsets = android.graphics.Insets.max(systemInsets, mandatory);
+            + "\n正文边界=" + placement.panel() + ", 背板安全边界=" + cardSafeFrame + "\n" + safeArea.diagnostics()
+            + "\n安全区保存配置=" + prefs.safeArea(rotation) + ", 临时校准=" + (safeAreaCalibration != null && safeAreaCalibration.editing()) + ", 辅助线开关=" + prefs.safeAreaGuides();
+        android.graphics.Insets handleInsets = chrome.handleInsets();
         int handleTop = Math.max(handleInsets.top, statusBox == null ? 0 : statusBox.bottom());
         DockGeometry.Box handleBox = DockGeometry.clockHandle(placement, size.x, size.y, cutouts, density, new DockGeometry.Box(handleInsets.left, handleTop, Math.max(0, size.x - handleInsets.left - handleInsets.right), Math.max(0, size.y - handleTop - handleInsets.bottom)), panelEntryPlacement.touch());
         dockHandlePositions = DockGeometry.clockHandlePositions(placement, handleBox);
@@ -667,7 +677,7 @@ public final class CoverService extends AccessibilityService implements DisplayM
         scheduleEntryGeometryCapture();
         if (statusBar != null) updateWindowBounds(statusBar, statusBox);
         CoverApp.widgets(this).safeArea(selected, size.x, size.y, widgetArea);
-        syncCardStatus(); syncDockVisibility(); return true;
+        syncCardStatus(); syncDockVisibility(); syncSafeAreaGuide(); return true;
     }
     private static boolean sameDockShape(DockGeometry.Placement a, DockGeometry.Placement b) {
         return a != null && a.edge() == b.edge() && a.touch().width() == b.touch().width() && a.touch().height() == b.touch().height()
@@ -682,45 +692,35 @@ public final class CoverService extends AccessibilityService implements DisplayM
     }
     /** Visibility-aware system bars; physical cutout safety also works when window metrics are unavailable. */
     static android.graphics.Insets contentInsets(android.view.WindowInsets insets, android.view.DisplayCutout cutout) {
-        android.graphics.Insets safe = insets == null ? android.graphics.Insets.NONE : insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.mandatorySystemGestures() | android.view.WindowInsets.Type.displayCutout());
-        if (cutout != null) safe = android.graphics.Insets.max(safe, android.graphics.Insets.of(cutout.getSafeInsetLeft(), cutout.getSafeInsetTop(), cutout.getSafeInsetRight(), cutout.getSafeInsetBottom()));
-        return safe;
+        return CoverSafeArea.automaticInsets(insets, cutout);
     }
     /** One display-coordinate content frame for runtime pages and both native card hosts. Entry touch keeps its own edge policy. */
     DockGeometry.Box resolveContentGeometry(Point size, int rotation, java.util.List<DockGeometry.Box> cutouts, DockGeometry.Placement entryAnchor, android.graphics.Insets insets, int homeInset) {
-        float density = screenContext.getResources().getDisplayMetrics().density;
-        DockGeometry.Box systemSafe = new DockGeometry.Box(insets.left, insets.top, Math.max(0, size.x - insets.left - insets.right), Math.max(0, size.y - insets.top - insets.bottom));
-        DockGeometry.Box physical = DockGeometry.panelContent(placement, size.x, size.y, cutouts);
-        cardSafeFrame = physical.intersect(systemSafe);
-        int statusHeight = Math.round(Ui.dp(screenContext, 20) * prefs.statusScale() / 100f);
-        controlStatusBox = DockGeometry.statusBar(cardSafeFrame, size.x, statusHeight, density).intersect(systemSafe);
-        String entryPosition = prefs.entryPosition(rotation);
-        int entryTopInset = DockGeometry.panelEntryTopInset(entryPosition, prefs.statusScale(), density);
-        if (!entryPosition.equals("bottom_right")) entryTopInset += Math.max(0, cardSafeFrame.y() - physical.y());
-        panelEntryPlacement = DockGeometry.panelEntry(entryAnchor, placement, size.x, size.y, cutouts, density, homeInset, entryPosition, entryTopInset);
-        DockGeometry.Box content = physical.intersect(panelEntryPlacement.panel());
-        panelFrame = new DockGeometry.Box(0, 0, size.x, size.y);
-        statusBox = prefs.statusEnabled() ? controlStatusBox : null;
-        if (statusBox != null) {
-            int top = Math.max(content.y(), statusBox.bottom() + Ui.dp(screenContext, 4));
-            content = new DockGeometry.Box(content.x(), top, content.width(), Math.max(0, content.bottom() - top));
-        }
-        // Preserve the pre-system bottom so launcher movement is not applied twice after clipping panel content.
-        DockGeometry.Placement chrome = new DockGeometry.Placement(placement.visual(), placement.touch(), content, placement.edge(), placement.measured());
-        hubFrame = DockGeometry.hubContent(chrome, size.x, size.y, cutouts, systemSafe);
-        content = content.intersect(systemSafe); hubAvailableFrame = hubFrame; taskFrame = hubFrame;
-        if (rotation == android.view.Surface.ROTATION_180) {
-            // Keep the old viewport heights. Reclaim only the entry's unused tail,
-            // then share that space above and below each page's actual content.
-            panelEntryPlacement = DockGeometry.compactTopEntry(panelEntryPlacement, density);
-            DockGeometry.Box available = physical.intersect(panelEntryPlacement.panel()).intersect(systemSafe);
-            content = DockGeometry.centerVertically(content, available);
-            hubAvailableFrame = new DockGeometry.Box(hubFrame.x(), available.y(), hubFrame.width(), Math.max(0, hubFrame.bottom() - available.y()));
-            taskFrame = DockGeometry.centerVertically(hubFrame, hubAvailableFrame);
-        }
-        placement = new DockGeometry.Placement(chrome.visual(), chrome.touch(), content, chrome.edge(), chrome.measured());
+        CoverSafeArea.Snapshot area = safeArea == null ? new CoverSafeArea.Snapshot(-1, "", rotation, size.x, size.y, screenContext.getResources().getDisplayMetrics().density, false, false, insets, insets, java.util.List.copyOf(cutouts)) : safeArea;
+        CoverSafeArea.Layout layout = CoverSafeArea.contents(screenContext, prefs, area, placement, entryAnchor, homeInset);
+        placement = layout.dock(); panelEntryPlacement = layout.entry(); cardSafeFrame = layout.card(); statusBox = layout.status(); controlStatusBox = layout.controlStatus();
+        hubFrame = layout.hub(); hubAvailableFrame = layout.hubAvailable(); taskFrame = layout.tasks(); panelFrame = new DockGeometry.Box(0, 0, size.x, size.y);
         launcherFrameRotation = rotation;
-        return DockGeometry.widgetContent(placement, panelEntryPlacement, statusBox, size.x, size.y, cutouts, density).intersect(systemSafe);
+        return layout.widget();
+    }
+    private void syncSafeAreaGuide() {
+        for (Runnable observer : java.util.List.copyOf(safeAreaObservers)) { main.removeCallbacks(observer); main.post(observer); }
+        boolean show = prefs != null && (prefs.safeAreaGuides() || safeAreaCalibration != null && safeAreaCalibration.editing());
+        if (!show || safeArea == null || windows == null || dock == null) { removeSafeAreaGuide(); return; }
+        if (safeAreaGuide == null) {
+            safeAreaGuide = new SafeAreaGuideView(screenContext);
+            WindowManager.LayoutParams params = parameters(new DockGeometry.Box(0, 0, safeArea.width(), safeArea.height()));
+            params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE; params.setTitle("外屏安全区辅助线");
+            windows.addView(safeAreaGuide, params);
+        }
+        safeAreaGuide.geometry(safeArea, dockPlacement == null ? placement : dockPlacement, safeAreaCalibration == null ? -1 : safeAreaCalibration.selectedEdge());
+    }
+    private void removeSafeAreaGuide() { if (safeAreaGuide != null) { try { windows.removeViewImmediate(safeAreaGuide); } catch (RuntimeException ignored) { } safeAreaGuide = null; } }
+    void suspendRotationForCalibration(Runnable ready) { if (automaticRotation == null) ready.run(); else { automaticRotation.suspend(); automaticRotation.afterCurrent(ready); } }
+    void resumeRotationAfterCalibration() { if (automaticRotation != null) automaticRotation.checkActive(); }
+    boolean restoreAutomaticRotationAfterCalibration(boolean enabled) {
+        if (enabled && !rotationAutomatic()) return automaticRotation != null && automaticRotation.start();
+        resumeRotationAfterCalibration(); return true;
     }
     private boolean retainHubSession(String nextDisplaySignature) {
         // Compare with the mounted snapshot, not Display/Resources objects that can
@@ -1868,11 +1868,12 @@ public final class CoverService extends AccessibilityService implements DisplayM
         removeWindows(false);
     }
     private void removeWindows(boolean keepNativeGeometry) {
+        removeSafeAreaGuide();
         if (panelEntry != null) rememberEntryGeometry("卸载前");
         cancelEntryGeometryCapture();
         // Keep a validated sample through same-geometry remounts, otherwise max/actual
         // differences would repeatedly recreate an open panel. resolve rejects new geometry.
-        if (!keepNativeGeometry) coverWindowInsets.reset();
+        if (!keepNativeGeometry) { coverWindowInsets.reset(); safeArea = null; }
         locationGeneration++;
         if (!keepNativeGeometry) invalidateForegroundQuery();
         removeDockHandle(false); dockHandleBox = null; dockHandlePositions = null;
@@ -2384,6 +2385,8 @@ public final class CoverService extends AccessibilityService implements DisplayM
         writer.println(CoverApp.launcher(this).diagnostics.report());
     }
     @Override public void onDestroy() {
+        if (safeAreaCalibration != null) safeAreaCalibration.finish(false);
+        safeAreaObservers.clear();
         closeForegroundQuery();
         CoverApp.inputs(this).unobserve(updateNativeInput);
         stopAutomaticRotation();

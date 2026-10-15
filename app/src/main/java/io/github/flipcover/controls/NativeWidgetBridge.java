@@ -69,7 +69,7 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
     private ChromeArea chromeArea;
     private final Runnable reconcile = this::refresh, expireDraft = this::refresh;
     private final Runnable publishDirty = () -> { Set<Integer> pending = Set.copyOf(dirty); dirty.clear(); for (int outer : pending) publish(outer); };
-    private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (p, key) -> { if ("display".equals(key)) schedule(); };
+    private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (p, key) -> { if ("display".equals(key) || key != null && key.startsWith("safe_area_")) geometryChanged(); };
     private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent intent) { if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) stop(); else schedule(); }
     };
@@ -277,6 +277,10 @@ final class NativeWidgetBridge implements DisplayManager.DisplayListener {
         if (safe == null && display.getCutout() != null) {
             android.view.DisplayCutout cutout = display.getCutout(); int left = cutout.getSafeInsetLeft(), top = cutout.getSafeInsetTop();
             safe = new DockGeometry.Box(left, top, Math.max(0, pixels.x - left - cutout.getSafeInsetRight()), Math.max(0, pixels.y - top - cutout.getSafeInsetBottom()));
+        }
+        if (chromeArea == null || chromeArea.displayId != display.getDisplayId() || chromeArea.rotation != display.getRotation() || chromeArea.width != pixels.x || chromeArea.height != pixels.y) {
+            CoverSafeArea.Snapshot area = CoverSafeArea.resolve(context.createDisplayContext(display), prefs, display, pixels, CoverSafeArea.cutoutInsets(display.getCutout()), null);
+            if (area.manual()) safe = safe == null ? area.frame() : safe.intersect(area.frame());
         }
         CoverService service = CoverService.instance;
         DockGeometry.Box host = service == null ? null : service.nativeHostBounds(display);

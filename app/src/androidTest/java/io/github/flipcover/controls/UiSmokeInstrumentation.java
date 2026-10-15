@@ -100,6 +100,7 @@ public final class UiSmokeInstrumentation extends Instrumentation {
             if (scenario.equals("rotation-reverse")) { result.putString("result", RotationReverseChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-geometry")) { result.putString("result", new RuntimeGeometryChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-safe-area")) { result.putString("result", RuntimeSafeAreaChecks.run(this)); finish(Activity.RESULT_OK, result); return; }
+            if (scenario.equals("safe-area")) { result.putString("result", new SafeAreaChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("runtime-feedback")) { result.putString("result", new RuntimeFeedbackChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("settings-scale")) { result.putString("result", new SettingsScaleChecks(this).run()); finish(Activity.RESULT_OK, result); return; }
             if (scenario.equals("oneui-settings")) { result.putString("result", new SettingsUiChecks(this).run()); finish(Activity.RESULT_OK, result); return; }

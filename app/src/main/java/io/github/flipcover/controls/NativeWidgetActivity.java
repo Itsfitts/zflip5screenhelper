@@ -81,7 +81,8 @@ public final class NativeWidgetActivity extends Activity {
         capturePosition(); renderedPage = page; pageScroll = null; body = null;
         if (picker != null) { picker.saveState(pickerState); picker = null; }
         root = SettingsUi.column(this); root.setBackgroundColor(SettingsUi.BACKGROUND);
-        root.setOnApplyWindowInsetsListener((v, insets) -> { android.graphics.Insets safe = insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout()); v.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
+        root.setOnApplyWindowInsetsListener((v, insets) -> { android.graphics.Insets safe = CoverSafeArea.activityInsets(this, v, insets); v.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
+        root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != or - ol || b - t != ob - ot) v.requestApplyInsets(); });
         LinearLayout header = SettingsUi.row(this); header.setMinimumHeight(SettingsUi.dp(this, 40)); header.addView(NativeWidgetUi.iconButton(this, R.drawable.ic_ms_arrow_back, "返回", this::back));
         String title = outer <= 0 ? "组合卡片" : page.equals("picker") ? "添加小组件" : page.equals("place") ? "尺寸与位置" : "组合卡片" + bridge.slot(outer);
         android.widget.TextView heading = NativeWidgetUi.heading(this, title, 16); heading.setAccessibilityHeading(true); header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));

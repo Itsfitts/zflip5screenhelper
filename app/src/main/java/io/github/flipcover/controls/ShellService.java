@@ -34,6 +34,7 @@ public final class ShellService extends IShellService.Stub {
             return switch (operation) {
                 case "rotation" -> rotation(displayId, value, false);
                 case "rotation_auto" -> rotation(displayId, 0, true);
+                case "rotation_read", "rotation_restore" -> calibrationRotation(displayId, operation.equals("rotation_restore"), component);
                 case "brightness", "brightness_read" -> brightness(displayId, value, operation.equals("brightness"));
                 case "states" -> states(displayId);
                 case "system_controls" -> systemControls(value);
@@ -78,6 +79,23 @@ public final class ShellService extends IShellService.Stub {
         String expected = automatic ? "free" : "lock " + rotation;
         boolean verified = read.ok() && read.text.trim().equals(expected);
         return reply(verified, verified ? automatic ? "外屏旋转已交回系统" : "系统已确认锁定 " + (rotation * 90) + "°" : "已提交旋转，但无法确认结果", read.text);
+    }
+    private String calibrationRotation(int display, boolean restore, String request) throws Exception {
+        secondary(display);
+        if (restore) {
+            JSONObject state = new JSONObject(request); String user = state.getString("user"), fixed = state.getString("fixed");
+            if (!(user.equals("free") || user.matches("lock [0-3]")) || !java.util.Set.of("default", "enabled", "disabled").contains(fixed)) throw new IllegalArgumentException("Invalid rotation snapshot");
+            Output mode = run("wm", "fixed-to-user-rotation", "-d", "" + display, fixed);
+            if (!mode.ok()) return reply(false, "原旋转策略恢复失败", mode.text);
+            Output write = user.equals("free") ? run("cmd", "window", "user-rotation", "-d", "" + display, "free") : run("cmd", "window", "user-rotation", "-d", "" + display, "lock", user.substring(5));
+            if (!write.ok()) return reply(false, "原旋转方向恢复失败", write.text);
+        }
+        Output user = run("cmd", "window", "user-rotation", "-d", "" + display), fixed = run("wm", "fixed-to-user-rotation", "-d", "" + display);
+        String u = user.text.trim(), f = fixed.text.trim();
+        boolean valid = user.ok() && fixed.ok() && (u.equals("free") || u.matches("lock [0-3]")) && java.util.Set.of("default", "enabled", "disabled").contains(f);
+        JSONObject result = new JSONObject().put("user", u).put("fixed", f);
+        if (restore) { JSONObject expected = new JSONObject(request); valid &= u.equals(expected.getString("user")) && f.equals(expected.getString("fixed")); }
+        return reply(valid, valid ? restore ? "已恢复校准前的旋转设置" : "已读取外屏旋转设置" : "无法确认外屏旋转设置", result.toString());
     }
     private String brightness(int display, int value, boolean write) throws Exception {
         activeSecondaryDisplay(display);

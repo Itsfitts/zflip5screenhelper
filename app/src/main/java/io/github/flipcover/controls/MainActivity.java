@@ -52,6 +52,8 @@ public final class MainActivity extends Activity {
     private DetailSheet sheet;
     private UpdateSettings updateSettings;
     private AppDisplaySettings appDisplaySettings;
+    private SafeAreaSettings safeAreaSettings;
+    private int safeAreaRotation;
     private TextView statusLabel;
     private StatusBarView statusPreview;
     private boolean panelPreviewExpanded, bindingUI;
@@ -71,17 +73,19 @@ public final class MainActivity extends Activity {
     private final List<Runnable> statusUpdates = new ArrayList<>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener modeChanged = (data, key) -> {
+        if (key == null || key.startsWith("safe_area_")) main.post(() -> { if (rootLayer != null) rootLayer.requestApplyInsets(); });
         if (key == null || key.equals("dock_expandable") || key.equals("dock_clock_follows_rules")) main.post(this::syncDockModeSetting);
     };
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Runnable statusRefresh = new Runnable() {
-        @Override public void run() { refreshStatus(); main.postDelayed(this, 1200); }
+        @Override public void run() { refreshStatus(); if (safeAreaSettings != null) safeAreaSettings.refreshService(); main.postDelayed(this, 1200); }
     };
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved); prefs = new Prefs(this);
         if (android.os.Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> { if (rootLayer instanceof InputSurface input) input.cancelCommand(); else back(); });
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if (saved != null) {
+            safeAreaRotation = saved.getInt("safe_area_direction", 0);
             inputMemory.restore(saved.getBundle("input_navigation")); navigator.restore(saved.getBundle("navigation")); panelPreviewExpanded = saved.getBoolean("panel_preview");
             pendingImportUri = saved.getString("import_uri"); draft = saved.getStringArrayList("draft"); draftKind = saved.getString("draft_kind");
             Bundle restoredOrder = saved.getBundle("order_state"); if (restoredOrder != null) orderState = restoredOrder;
@@ -100,11 +104,12 @@ public final class MainActivity extends Activity {
         Runnable navigate = () -> {
             setIntent(intent); pendingImportUri = null; importRequest++;
             if (appDisplaySettings != null) appDisplaySettings.discardDraft();
+            if (safeAreaSettings != null) safeAreaSettings.cancel();
             if (orderList != null) { orderList.cancelDrag(); orderList = null; }
             draft = null; draftKind = null; orderState = new Bundle();
             orientationPackage = targetPackage; orientationTitle = targetPackage; showRoute(page);
         };
-        if (appDisplaySettings != null && appDisplaySettings.hasDraft() || draft != null && !draft.equals(savedActions(draftKind))) confirm("放弃这次编辑？", "尚未完成的修改不会保存。", "放弃并继续", navigate);
+        if (safeAreaSettings != null && safeAreaSettings.hasDraft() || appDisplaySettings != null && appDisplaySettings.hasDraft() || draft != null && !draft.equals(savedActions(draftKind))) confirm("放弃这次编辑？", "尚未完成的修改不会保存。", "放弃并继续", navigate);
         else navigate.run();
     }
     @Override protected void onResume() {
@@ -112,9 +117,11 @@ public final class MainActivity extends Activity {
         prefs.data.registerOnSharedPreferenceChangeListener(modeChanged); syncDockModeSetting();
         if (updateSettings != null) updateSettings.refresh();
         if (appDisplaySettings != null) appDisplaySettings.resume();
+        if (safeAreaSettings != null) safeAreaSettings.resume();
         if (statusPreview != null && statusPreviewHost != null && statusPreview.getParent() == null) statusPreviewHost.addView(statusPreview, new LinearLayout.LayoutParams(-1, statusPreview.heightPixels()));
     }
     @Override protected void onPause() {
+        if (safeAreaSettings != null) safeAreaSettings.detach();
         prefs.data.unregisterOnSharedPreferenceChangeListener(modeChanged);
         main.removeCallbacks(statusRefresh);
         if (updateSettings != null) updateSettings.pause();
@@ -123,8 +130,10 @@ public final class MainActivity extends Activity {
         if (statusPreview != null && statusPreview.getParent() instanceof android.view.ViewGroup parent) parent.removeView(statusPreview);
         super.onPause();
     }
-    @Override protected void onDestroy() { if (updateSettings != null) updateSettings.close(); main.removeCallbacksAndMessages(null); worker.shutdown(); super.onDestroy(); }
+    @Override protected void onStop() { if (safeAreaSettings != null && !isChangingConfigurations()) safeAreaSettings.cancel(); super.onStop(); }
+    @Override protected void onDestroy() { if (safeAreaSettings != null) safeAreaSettings.detach(); if (updateSettings != null) updateSettings.close(); main.removeCallbacksAndMessages(null); worker.shutdown(); super.onDestroy(); }
     @Override protected void onSaveInstanceState(Bundle out) {
+        out.putInt("safe_area_direction", safeAreaSettings == null ? safeAreaRotation : safeAreaSettings.rotation());
         saveLibraryState(); out.putBundle("input_navigation", inputMemory.state()); out.putBundle("library_states", libraryStates);
         out.putBundle("order_state", orderList == null ? orderState : orderList.saveState());
         out.putString("import_uri", pendingImportUri); out.putBundle("navigation", navigator.save(scroll, body)); out.putBoolean("panel_preview", panelPreviewExpanded); out.putStringArrayList("draft", draft); out.putString("draft_kind", draftKind); super.onSaveInstanceState(out);
@@ -143,6 +152,7 @@ public final class MainActivity extends Activity {
             case "appearance" -> appearanceSettings();
             case "background" -> backgroundSettings();
             case "gestures" -> gestureSettings();
+            case "safe_area" -> safeAreaSettings();
             case "visibility" -> visibilitySettings();
             case "visibility_apps" -> applicationList(false);
             case "layout_backup" -> layoutSettings();
@@ -168,6 +178,7 @@ public final class MainActivity extends Activity {
     }
     private final InputNavigation.Memory inputMemory = new InputNavigation.Memory();
     private void begin(String title, String page) {
+        if (safeAreaSettings != null) { safeAreaRotation = safeAreaSettings.rotation(); if (!page.equals("safe_area")) safeAreaSettings.cancel(); safeAreaSettings.detach(); safeAreaSettings = null; }
         if (appDisplaySettings != null) { appDisplaySettings.pause(); appDisplaySettings = null; }
         if (updateSettings != null) { updateSettings.close(); updateSettings = null; }
         saveLibraryState(); renderedLibrary = null;
@@ -181,7 +192,8 @@ public final class MainActivity extends Activity {
             Runnable execute = () -> { CoverService service = CoverService.instance; if (id.equals("back")) back(); else if (service == null || getDisplay() == null || !service.inputShortcut(id, getDisplay().getDisplayId())) toast("请在已选择的外屏开启助手后使用快捷栏"); };
             if (route.equals("order") && draft != null && !draft.equals(savedActions(draftKind))) confirm("放弃这次编辑？", "尚未完成的修改不会保存。", "放弃并继续", () -> { draft = null; draftKind = null; popPage(); execute.run(); }); else execute.run();
         }); rootLayer = inputRoot; rootLayer.setBackgroundColor(SettingsUi.BACKGROUND);
-        rootLayer.setOnApplyWindowInsetsListener((view, insets) -> { android.graphics.Insets safe = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime()); view.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
+        rootLayer.setOnApplyWindowInsetsListener((view, insets) -> { android.graphics.Insets safe = CoverSafeArea.activityInsets(this, view, insets); view.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets; });
+        rootLayer.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> { if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) view.requestApplyInsets(); });
         outer = SettingsUi.column(this); SettingsUi.Viewport viewport = new SettingsUi.Viewport(this, prefs.settingsScale()); viewport.addView(outer, new FrameLayout.LayoutParams(-1, -1)); rootLayer.addView(viewport, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout header = SettingsUi.row(this); header.setMinimumHeight(Ui.dp(this, 52)); header.setPadding(Ui.dp(this, page.equals("main") ? 16 : 2), Ui.dp(this, 2), Ui.dp(this, 8), Ui.dp(this, 2));
         if (!page.equals("main")) { View back = SettingsUi.iconButton(this, R.drawable.ic_ms_arrow_back, "返回", this::back); back.setTag("settings-back"); header.addView(back); }
@@ -197,6 +209,7 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() { if (rootLayer instanceof InputSurface input) input.cancelCommand(); else back(); }
     private void back() {
         if (sheet != null) { dismissSheet(); return; }
+        if (safeAreaSettings != null && safeAreaSettings.hasDraft()) { confirm(getString(R.string.safe_area_discard_title), getString(R.string.safe_area_discard_help), getString(R.string.safe_area_discard), () -> { safeAreaSettings.cancel(); popPage(); }); return; }
         if (appDisplaySettings != null && appDisplaySettings.hasDraft()) { confirm(getString(R.string.display_size_discard_title), getString(R.string.display_size_discard_message), getString(R.string.display_size_discard), this::popPage); return; }
         if (route.equals("order") && draft != null && !draft.equals(savedActions(draftKind))) {
             confirm("放弃这次编辑？", "尚未完成的顺序和增删不会保存。", "放弃更改", () -> { draft = null; draftKind = null; popPage(); }); return;
@@ -217,6 +230,7 @@ public final class MainActivity extends Activity {
     private record Setting(String group, String page, int icon, String title, String keywords, Supplier<String> value) { }
     private List<Setting> settings() {
         return List.of(
+            new Setting("快捷栏与手势", "safe_area", R.drawable.ic_ms_display_settings, getString(R.string.safe_area_title), "边界 描边 辅助线 自动 手动 旋转 留白 白条 安全区", prefs::safeAreaSummary),
             new Setting("快捷栏与手势", "dock", R.drawable.ic_ms_tune, "按钮与布局", "数量 固定键 顺序 阻尼 快捷栏 Home 主页 锁屏 应用中心 自动 回到 第一页 翻页", () -> prefs.perPage() + " 个 / 页 · " + ActionCatalog.label(this, prefs.pinnedAction())),
             new Setting("快捷栏与手势", "visibility", R.drawable.ic_ms_home, "快捷栏模式与收起", "常驻 收起 展开 箭头 首页 时钟 同步 跟随 规则 按前台应用自动隐藏 桌面 键盘 应用名单", this::dockModeLabel),
             new Setting("快捷栏与手势", "gestures", R.drawable.ic_ms_swap_vert, "手势与导航避让", "震动 偏移 白条 摄像头 上滑 通知 旋转 位置 安全区 Home 返回", () -> prefs.gesturesEnabled() ? "白条拖动已开启" : "白条拖动已关闭"),
@@ -306,6 +320,24 @@ public final class MainActivity extends Activity {
         Button reset = SettingsUi.button(this, "恢复100%", () -> { prefs.settingsScale(100); settingsScaleSettings(); }); reset.setTag("settings-scale-reset"); options.addView(reset);
         note("100% 为默认大小，松手后应用。组合卡片及其子页面保持原有大小。");
     }
+    private void safeAreaSettings() {
+        begin(getString(R.string.safe_area_title), "safe_area");
+        safeAreaSettings = new SafeAreaSettings(this, prefs, safeAreaRotation, new SafeAreaSettings.Host() {
+            @Override public void show(String title, String message, String action, Runnable confirmed) { confirm(title, message, action, confirmed); }
+            @Override public void mode(boolean manual, Consumer<Boolean> selected) {
+                DetailSheet modal = openSheet(getString(R.string.safe_area_title));
+                for (boolean value : new boolean[]{false, true}) {
+                    String name = getString(value ? R.string.safe_area_manual : R.string.safe_area_auto);
+                    View row = SettingsUi.settingRow(MainActivity.this, 0, name, value == manual ? "已选择" : "", () -> { dismissSheet(); selected.accept(value); }); row.setTag("safe-area-mode-" + value); modal.content.addView(row);
+                }
+            }
+            @Override public void number(String title, int value, java.util.function.IntPredicate accept) {
+                DetailSheet modal = openSheet(title); EditText input = SettingsUi.search(MainActivity.this, title, String.valueOf(value)); input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER); input.setSelectAllOnFocus(true); modal.content.addView(input);
+                modal.content.addView(SettingsUi.button(MainActivity.this, "确定", () -> { try { if (!accept.test(Integer.parseInt(input.getText().toString()))) throw new IllegalArgumentException(); dismissSheet(); } catch (RuntimeException error) { input.setError(getString(R.string.safe_area_invalid)); } }));
+                modal.content.addView(SettingsUi.button(MainActivity.this, "取消", MainActivity.this::dismissSheet));
+            }
+        }); body.addView(safeAreaSettings); safeAreaSettings.resume();
+    }
     private void statusSettings() {
         begin("状态栏", "status"); LinearLayout master = group("status-master"); toggle(master, "常驻状态栏", "亮屏且解锁时显示；以下大小与留白也用于控制中心", "status_enabled", BuildConfig.DEFAULTS_STATUS_ENABLED);
         link(master, 0, "指定应用隐藏状态栏", prefs.statusHiddenApps().size() + " 个应用 · 外屏常驻栏", "status_apps");
@@ -358,7 +390,7 @@ public final class MainActivity extends Activity {
         }
         note("顶部白条向下滑，通知和控制中心从上方跟手展开、向上收起；右底部白条向上滑，面板从下方展开、向下收起。白条平时隐藏，触摸入口仍保留。");
         LinearLayout gestures = group("gesture-options"); toggle(gestures, "白条滑入", "白条可见时长按切换常驻／收起展开模式，透明时长按无效", "gestures_enabled", BuildConfig.DEFAULTS_DOCK_GESTURES); toggle(gestures, "震动反馈", "遵循系统震动设置", "haptics", BuildConfig.DEFAULTS_DOCK_HAPTICS);
-        LinearLayout navigation = group("navigation-options"); toggle(navigation, "快捷按钮避让导航区", "仅移动快捷按钮；白条位置由上方各方向选项设置", "avoid_navigation", false); slider(navigation, "快捷按钮额外向内偏移", "navigation_gap", 0, 48, prefs.navigationGap(), "dp", value -> { }, value -> prefs.data.edit().putInt("navigation_gap", value).apply());
+        LinearLayout navigation = group("navigation-options"); toggle(navigation, "快捷按钮避让导航区", "自动安全区下仅移动快捷按钮；手动模式统一使用校准边界", "avoid_navigation", false); slider(navigation, "快捷按钮额外向内偏移", "navigation_gap", 0, 48, prefs.navigationGap(), "dp", value -> { }, value -> prefs.data.edit().putInt("navigation_gap", value).apply());
         SettingsUi.section(body, "为什么各方向的选项不同？");
         note("三星外屏侧边滑入仍可能触发系统返回，底边上滑也可能回到时钟。现在改用顶部或右底部的横向入口，并结合摄像头缺口避让；可按握持习惯分别选择位置。180° 固定左顶部。");
         note("这是调整本应用的入口，不会关闭系统 Home 或返回。不同系统版本、保护壳和起手位置仍可能影响识别；请从预览所示的白条区域起手。");
