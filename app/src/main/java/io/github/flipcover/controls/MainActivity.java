@@ -231,7 +231,7 @@ public final class MainActivity extends Activity {
     private record Setting(String group, String page, int icon, String title, String keywords, Supplier<String> value) { }
     private List<Setting> settings() {
         return List.of(
-            new Setting("快捷栏与手势", "safe_area", R.drawable.ic_ms_display_settings, getString(R.string.safe_area_title), "边界 描边 辅助线 自动 手动 旋转 留白 白条 安全区", prefs::safeAreaSummary),
+            new Setting("首页底部", "safe_area", R.drawable.ic_ms_display_settings, getString(R.string.safe_area_title), "边界 描边 辅助线 自动 手动 旋转 留白 白条 安全区", prefs::safeAreaSummary),
             new Setting("快捷栏与手势", "dock", R.drawable.ic_ms_tune, "按钮与布局", "数量 固定键 顺序 阻尼 快捷栏 Home 主页 锁屏 应用中心 自动 回到 第一页 翻页", () -> prefs.perPage() + " 个 / 页 · " + ActionCatalog.label(this, prefs.pinnedAction())),
             new Setting("快捷栏与手势", "visibility", R.drawable.ic_ms_home, "快捷栏模式与收起", "常驻 收起 展开 箭头 首页 时钟 同步 跟随 规则 按前台应用自动隐藏 桌面 键盘 应用名单", this::dockModeLabel),
             new Setting("快捷栏与手势", "gestures", R.drawable.ic_ms_swap_vert, "手势与导航避让", "震动 偏移 白条 摄像头 上滑 通知 旋转 位置 安全区 Home 返回", () -> prefs.gesturesEnabled() ? "白条拖动已开启" : "白条拖动已关闭"),
@@ -259,13 +259,16 @@ public final class MainActivity extends Activity {
         begin(getString(R.string.app_name), "main");
         LinearLayout master = group("master"); master.setBackground(Ui.background(this, SettingsUi.MASTER, 26));
         Switch enabled = SettingsUi.toggle(master, "开启外屏助手", "已暂停 · 配置保留", prefs.enabled(), checked -> { prefs.data.edit().putBoolean("enabled", checked).apply(); refreshStatus(); }); enabled.setTag("settings-enabled"); enabled.setTrackTintList(new android.content.res.ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{0xFF4A88FF, 0xFF65656C}));
-        statusLabel = SettingsUi.toggleSummary(enabled); refreshStatus();
+        statusLabel = SettingsUi.toggleSummary(enabled);
+        Button accessibility = SettingsUi.button(this, getString(R.string.settings_accessibility_shortcut), () -> open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))); accessibility.setTag("settings-accessibility"); accessibility.setTextSize(14); accessibility.setBackground(Ui.ripple(this, 0, 12)); accessibility.setVisibility(View.GONE); body.addView(accessibility, new LinearLayout.LayoutParams(-1, -2)); refreshStatus();
         EditText search = search("搜索设置", "settings-query"); SettingsUi.add(body, search); search.setVisibility(pageState.getBoolean("settings-query-visible", false) || search.length() > 0 ? View.VISIBLE : View.GONE);
         LinearLayout results = SettingsUi.column(this); results.setTag("settings-results"); body.addView(results);
         LinearLayout footer = SettingsUi.column(this); footer.setTag("settings-footer"); footer.setGravity(Gravity.CENTER_HORIZONTAL); footer.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), 0); body.addView(footer);
         LinearLayout footerActions = SettingsUi.row(this); footerActions.setGravity(Gravity.CENTER); footer.addView(footerActions, new LinearLayout.LayoutParams(-1, -2));
-        Button quickUpdate = SettingsUi.button(this, getString(R.string.update_check), () -> { about(); updateSettings.check(); }); quickUpdate.setTag("settings-check-update"); quickUpdate.setTextSize(14); quickUpdate.setBackground(Ui.ripple(this, 0, 12)); footerActions.addView(quickUpdate, new LinearLayout.LayoutParams(0, -2, 1));
-        Button compatibility = SettingsUi.button(this, getString(R.string.settings_compatibility), () -> showRoute("launch_compatibility")); compatibility.setTag("settings-compatibility"); compatibility.setTextSize(14); compatibility.setBackground(Ui.ripple(this, 0, 12)); footerActions.addView(compatibility, new LinearLayout.LayoutParams(0, -2, 1));
+        Button quickUpdate = SettingsUi.button(this, getString(R.string.update_check), () -> { about(); updateSettings.check(); }); quickUpdate.setTag("settings-check-update");
+        Button compatibility = SettingsUi.button(this, getString(R.string.settings_compatibility), () -> showRoute("launch_compatibility")); compatibility.setTag("settings-compatibility");
+        Button safeArea = SettingsUi.button(this, getString(R.string.safe_area_title), () -> showRoute("safe_area")); safeArea.setTag("settings-safe-area");
+        for (Button action : List.of(quickUpdate, compatibility, safeArea)) { action.setTextSize(12); action.setGravity(Gravity.CENTER); action.setPadding(Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8)); action.setBackground(Ui.ripple(this, 0, 12)); footerActions.addView(action, new LinearLayout.LayoutParams(0, -1, 1)); }
         TextView support = SettingsUi.text(this, "版本 " + BuildConfig.VERSION_NAME + " · " + getString(R.string.settings_support), 14, SettingsUi.MUTED); support.setTag("settings-support"); support.setTextSize(12); support.setGravity(Gravity.CENTER); support.setPadding(0, Ui.dp(this, 4), 0, Ui.dp(this, 8)); footer.addView(support, new LinearLayout.LayoutParams(-1, -2));
         Runnable filter = () -> {
             results.removeAllViews(); String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT); footer.setVisibility(query.isEmpty() ? View.VISIBLE : View.GONE);
@@ -609,8 +612,21 @@ public final class MainActivity extends Activity {
     }
     private void permission(LinearLayout group, String title, Supplier<String> status, Runnable action) { SettingsUi.ValueRow row = SettingsUi.valueRow(this, title, status.get(), action); group.addView(row); statusUpdates.add(() -> row.value(status.get())); }
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) { super.onRequestPermissionsResult(request, permissions, grants); if (CoverService.instance != null) CoverService.instance.permissionsChanged(); refreshStatus(); }
+    private boolean accessibilityEnabled() {
+        if (Settings.Secure.getInt(getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 0) return false;
+        String enabled = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        ComponentName ownService = new ComponentName(this, CoverService.class);
+        if (enabled != null) for (String component : enabled.split(":")) if (ownService.equals(ComponentName.unflattenFromString(component))) return true;
+        return false;
+    }
     private void refreshStatus() {
-        if (statusLabel != null) { String state = !prefs.enabled() ? "已暂停 · 配置保留" : CoverService.instance == null ? "待授权：无障碍服务" : Displays.selected(this, prefs) == null ? "待选择目标外屏" : CoverService.status; if (!state.contentEquals(statusLabel.getText())) statusLabel.setText(state); View enabled = body.findViewWithTag("settings-enabled"); if (enabled != null) enabled.setContentDescription("开启外屏助手，" + state); }
+        if (statusLabel != null) {
+            boolean accessibility = accessibilityEnabled();
+            String state = !prefs.enabled() ? "已暂停 · 配置保留" : !accessibility ? "待授权：无障碍服务" : CoverService.instance == null ? getString(R.string.settings_accessibility_connecting) : Displays.selected(this, prefs) == null ? "待选择目标外屏" : CoverService.status;
+            if (!state.contentEquals(statusLabel.getText())) statusLabel.setText(state);
+            View enabled = body.findViewWithTag("settings-enabled"); if (enabled != null) enabled.setContentDescription("开启外屏助手，" + state);
+            View shortcut = body.findViewWithTag("settings-accessibility"); if (shortcut != null) shortcut.setVisibility(prefs.enabled() && !accessibility ? View.VISIBLE : View.GONE);
+        }
         if (route.equals("permissions")) for (Runnable update : List.copyOf(statusUpdates)) update.run();
     }
     private String displaySummary() { Display display = Displays.selected(this, prefs); return display == null ? "尚未选择可用外屏" : display.getName() + (display.getState() == Display.STATE_ON ? " · 已亮起" : " · 未亮起"); }

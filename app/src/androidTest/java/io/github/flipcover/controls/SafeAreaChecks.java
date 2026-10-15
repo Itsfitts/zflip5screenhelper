@@ -14,15 +14,15 @@ final class SafeAreaChecks {
     SafeAreaChecks(Instrumentation test) { this.test = test; }
     private void require(boolean value, String reason) { assertions++; if (!value) throw new AssertionError(reason); }
     String run() {
-        Activity activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("section", "group_dock"));
+        Activity activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("section", "main"));
         Prefs prefs = new Prefs(activity); String[] before = new String[4];
         for (int r = 0; r < 4; r++) before[r] = prefs.data.getString("safe_area_" + r, null);
         boolean oldStatus = prefs.statusEnabled();
         try {
             test.runOnMainSync(() -> {
-                android.widget.LinearLayout options = activity.findViewById(android.R.id.content).findViewWithTag("category-options");
-                require(options != null && "settings-link-safe_area".equals(options.getChildAt(0).getTag()), "safe area is first in dock/gesture root menu");
-                options.getChildAt(0).performClick();
+                View entry = activity.findViewById(android.R.id.content).findViewWithTag("settings-safe-area");
+                require(entry != null && ((android.view.ViewGroup) entry.getParent()).indexOfChild(entry) == 2, "safe area follows compatibility in the home footer");
+                entry.performClick();
                 require(activity.findViewById(android.R.id.content).findViewWithTag("safe-area-guides") != null, "dedicated guide switch exists");
                 for (int r = 0; r < 4; r++) require(activity.findViewById(android.R.id.content).findViewWithTag("safe-area-direction-" + r) != null, "all four independent directions reachable");
                 var directionRow = (android.widget.LinearLayout) activity.findViewById(android.R.id.content).findViewWithTag("safe-area-directions");
