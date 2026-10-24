@@ -1,71 +1,69 @@
-# Flip5 外屏助手迭代计划
+# Flip5 external screen assistant iteration plan
 
-目标设备：Galaxy Z Flip5，Android 16 / One UI 8.5，无 Root，可使用 Shizuku。产品面向外屏日常使用，内屏不可用时仍应能在外屏完成设置。
+Target device: Galaxy Z Flip5, Android 16/One UI 8.5, no root, works with Shizuku. The product is designed for daily use on the external screen. When the internal screen is unavailable, settings should still be completed on the external screen.
 
-当前交付：0.6.0（构建 7），根据用户真机截图修正并完成两种 DPI 的逐页布局检查。0.3–0.5 的有限自动迭代已按计划收尾，本版由新的反馈触发；后续依据 Flip5 真机复测修正。现有侧边栏工具继续兼容使用。所有“本地通过”与“三星真机通过”分开记录。
+Current delivery: 0.6.0 (Build 7), corrected and completed page-by-page layout checking for both DPIs based on user real-machine screenshots. The limited automatic iteration of 0.3–0.5 has been completed as planned, and this version is triggered by new feedback; subsequent corrections will be based on Flip5 real machine retests. Existing sidebar tools continue to be compatible. All "local passes" and "Samsung real device passes" are recorded separately.
 
-## 0.3.0：状态与基础入口（实现与本地验收完成，三星真机待验）
+## 0.3.0: Status and basic entrance (implementation and local acceptance completed, Samsung real machine to be inspected)
 
-- [x] 常驻状态条：时间、Wi-Fi、电量百分比和充电状态、闹钟、通知应用图标；网速和移动网络信息按需显示。数据缺失不假装有信号，不保存通知正文。
-- [x] 底部双手势条：左侧向内拖动通知面板，右侧向内拖动控制中心；面板逐帧跟手。适配四方向，避免与图标点击、左右翻页冲突。
-- [x] 桌面与系统面板默认收起按钮，仅保留双横条；普通应用恢复按钮。长按任意横条临时切换，同一应用内保持，换应用后恢复规则。收起时真实缩小触摸窗口；前台识别只处理指定外屏窗口元数据，设置支持按应用配置。具体 One UI 首页、通知页和卡片页的报告仍需真机确认。
-- [x] 用户已选择自绘通知面板跟手展开，三星原生通知保留为独立入口。
-- [x] 固定键默认打开快捷应用中心：初始只显示左侧可滚动收藏栏；编辑收藏、展开/折叠右侧应用页；右侧可搜索和滚动；底部独立固定应用不随列表滚动。
-- [x] 应用启动保持指定外屏。参考 vivo 的侧栏交互，不承诺获得 vivo 的系统小窗、OCR 或全局翻译能力。
-- [x] 设置中心按任务分组并支持搜索；权限显示真实状态和功能影响；基础配置配预览；诊断信息不混入日常设置。
-- [x] 关于页包含版本号、构建号、本地更新日志和许可信息。
-- [x] 构建、相关单测、原生模拟器手势/界面验收，输出同签名 APK 和验证记录。16 项 JVM 测试、86 项原生组件断言通过，Lint 0 错误。见 `dist/开发设计/VALIDATION-0.3.0.md`。
+-[x] Permanent status bar: time, Wi-Fi, battery percentage and charging status, alarm clock, notification application icon; network speed and mobile network information are displayed on demand. Missing data is not signaled and the notification text is not saved.
+-[x] Dual gesture bar at the bottom: drag the notification panel inward on the left side, and drag the control center inward on the right side; the panel follows the hand frame by frame. Adapt to four directions to avoid conflicts with icon clicking and left and right page turning.
+-[x] The desktop and system panel retract buttons by default, leaving only double horizontal bars; normal application recovery buttons. Long press any bar to switch temporarily, keep it within the same application, and restore the rules after changing applications. The touch window is truly reduced when retracted; foreground recognition only processes the metadata of the specified external screen window, and the settings support per-application configuration. Specific reports on the One UI home page, notification page, and card page still need to be confirmed by real devices.
+-[x] The user has chosen to expand the self-drawn notification panel, and Samsung’s native notifications remain as independent entrances.
+-[x] The fixed key opens the quick application center by default: only the scrollable collection bar on the left is initially displayed; edit collections, expand/collapse the application page on the right; search and scroll are available on the right; independent pinned applications at the bottom do not scroll with the list.
+-[x] App startup keeps the specified external screen. Refer to vivo's sidebar interaction, and there is no commitment to obtain vivo's system window, OCR or global translation capabilities.
+-[x] The settings center is grouped by tasks and supports search; permissions display the true status and functional impact; basic configurations are previewed; diagnostic information is not mixed into daily settings.
+-[x] About page contains version number, build number, local changelog and licensing information.
+-[x] Build, related unit tests, native simulator gesture/interface acceptance, output the same signature APK and verification records. 16 JVM tests, 86 native component assertions passed, 0 Lint errors. See `dist/dev-design/VALIDATION-0.3.0.md`.
 
-## 0.4.0：避让与操作恢复（实现与本地验收完成，三星真机待验）
+## 0.4.0: Avoidance and operation recovery (implementation and local acceptance completed, Samsung real machine to be inspected)
 
-- [x] 临时避让：所选外屏出现输入法窗口时收成细条，消失后恢复；长按可临时展开。相机与视频使用已有按应用规则，不声称判断播放/拍摄状态。One UI 的实际输入法窗口报告待真机验收。
-- [x] 手势容错：轻震开关、四方向标题拖回和快速收起、短划回弹、错误轴拒绝、双指取消后吞掉剩余手势。原生组件断言通过。
-- [x] 布局备份、恢复默认及撤销：保存比例与四方向位置、按钮/面板/侧栏/状态选项；严格校验后一次应用，不修改系统分辨率、权限、目标显示器或避让规则。
-- [x] 复查服务窗口恢复、锁屏/息屏隐藏和输入取消路径；保留事件驱动检查，不添加轮询保活。切换应用常驻、解锁恢复及与原侧栏共存仍列为真机待验。
-- [x] 配置版本 4、应用更新日志、同签名 APK 与验证记录；18 项 JVM 测试和 119 项原生组件断言通过，Lint 0 错误。
+-[x] Temporary avoidance: When the input method window appears on the selected external screen, a thin strip will be harvested, and it will be restored after disappearing; long press can temporarily expand it. Camera and video use are in accordance with application rules and do not claim to determine the playback/shooting status. The actual input method window report of One UI is pending acceptance on the real machine.
+-[x] Gesture tolerance: flick switch, four-way title dragging and quick retracting, short swipe rebound, wrong axis rejection, swallowing remaining gestures after two-finger cancellation. Native component assertion passes.
+-[x] Layout backup, restore to default and undo: save proportions and four-way positions, button/panel/sidebar/status options; apply once after strict verification, without modifying system resolution, permissions, target monitors or avoidance rules.
+-[x] Review service window restoration, lock screen/halt screen hiding and input cancellation path; retain event-driven checks and do not add polling keepalive. Switching to permanent application, unlocking and restoring, and coexistence with the original sidebar are still listed as real devices for testing.
+-[x] Configuration version 4, application update log, same-signed APK and verification records; 18 JVM tests and 119 native component assertions passed, Lint 0 errors.
 
-## 0.5.0：个性化与整体回归（实现与本地验收完成，三星真机待验）
+## 0.5.0: Personalization and overall return (implementation and local acceptance completed, Samsung real machine to be tested)
 
-- [x] 单手模式：默认、左手和右手可切换，固定键、收藏栏和滑条按侧重排，保持异形区域安全边界与双入口顺序；纵向固定键仍在底部。
-- [x] 应用方向记忆：用户配置方向，从本工具显式打开时执行一次；异步完成后重查外屏状态，不在后台反复抢方向。Shizuku 实际效果待真机确认。
-- [x] 状态栏极简/日常/全部预设，仍保留独立开关；手动改动后准确显示自定义状态。
-- [x] 配置版本 5、布局版本 2 覆盖新偏好，兼容配置 1–4；错误数据原子拒绝，权限和显示器选择保持由当前设备决定。
-- [x] 可执行本地回归：19 项 JVM 测试、147 项主界面断言，电话权限授予/撤销和 Wi-Fi 断开/重连另 14 项，共 161 项原生断言；Lint 0 错误、16 警告。包含 2–5 键、四角落、多尺寸、状态策略和配置恢复，不代替真实前后台切换、无网络或三星权限测试。
-- [x] 应用更新日志、同包名同签名 APK、原生截图与最终验证清单见 `dist/开发设计/VALIDATION.md`。
+-[x] One-handed mode: Default, left and right hand switchable, fixed keys, favorite bar and slider are arranged side by side, maintaining the safety boundary of the special-shaped area and the dual entrance sequence; the vertical fixed keys are still at the bottom.
+-[x] Application direction memory: The user configures the direction and executes it once when the tool is explicitly opened; recheck the external screen status after the asynchronous completion, and does not repeatedly grab the direction in the background. The actual effect of Shizuku needs to be confirmed on the real machine.
+-[x] The status bar is minimalist/daily/all preset, and still retains independent switches; after manual changes, the customized status is accurately displayed.
+-[x] Configuration version 5, layout version 2 override new preferences, compatible with configurations 1–4; atomic rejection of bad data, permissions and display selection remain determined by current device.
+-[x] Executable local regression: 19 JVM tests, 147 main interface assertions, another 14 for phone permission grant/revoke and Wi-Fi disconnect/reconnect, for a total of 161 native assertions; Lint 0 errors, 16 warnings. Contains 2–5 keys, four corners, multiple sizes, state strategies and configuration recovery, does not replace real front and back switching, no network or Samsung permission testing.
+-[x] See `dist/Development/VALIDATION.md` for the application update log, APK with the same package name and signature, native screenshots and final verification list.
 
-## 0.6.0：真机布局反馈与全界面密度检查
+## 0.6.0: Real device layout feedback and full interface density check
 
-- [x] 通知变化改为原地更新卡片，不重建通知面板窗口；补测频繁重复通知、修改、新增、移除及权限丢失路径。
-- [x] 默认透明对比描边，保留纯黑/浅色/深色选项；状态带安全外缘补齐，不截屏取色。
-- [x] 状态栏默认 70%，提供 50%–150% 滑块与独立百分比开关；控制中心左侧强制电池百分比。
-- [x] 根据用户已关闭三星外屏导航条的反馈，默认贴边捕获；双横条收起状态也到达最外缘。保留可选向内避让及 0–48dp 偏移、轻点入口。
-- [x] 容忍斜向向内滑动与短划，取消和反向收回不误触按钮；内容与背景分开计算，取消面板底部额外预留带。
-- [x] 通知首行合并、控制中心状态行去重、设置行高与间距压缩；逐页记录可用内容高度、真实空状态与 DPI 换列结果。
-- [x] 应用中心收紧图标、间距和搜索行；按可用宽度/DPI 自动列数，编辑/设置菜单与展开键合并排列。
-- [x] 应用构建、22 项 JVM 测试、189 项主组件断言、340/440 dpi 各 30 项逐页断言；明暗背景与 50%–150% 大小检查、同签名 APK。
-- [ ] 手机复测：贴边划入成功率、跨窗跟手、通知更新闪烁与底部露底是否消失，实际位置和 70% 状态栏可读性。
+-[x] Notification changes are changed to update the card in place without rebuilding the notification panel window; supplementary testing frequently repeats notification, modification, addition, removal and permission loss paths.
+-[x] Default transparent contrast stroke, retain pure black/light/dark options; status with safe outer edge filling, no screenshot color selection.
+-[x] The status bar defaults to 70%, providing 50%–150% slider and independent percentage switch; forced battery percentage on the left side of the control center.
+-[x] Based on feedback from users who have turned off Samsung's external screen navigation bar, edge capture is enabled by default; the double horizontal bars also reach the outermost edge when retracted. Keep optional inward ducking and 0–48dp offset, tap entrance.
+-[x] Tolerate diagonal inward sliding and short swipes, cancel and reverse retract without accidentally touching the button; content and background are calculated separately, and the extra reserved band at the bottom of the panel is cancelled.
+-[x] Notify first row merging, control center status row deduplication, set row height and spacing compression; record available content height, true empty status and DPI column swapping results page by page.
+-[x] Tighten icons, spacing and search lines in the application center; auto-column arrangement by available width/DPI, edit/settings menus and expand keys merged.
+-[x] App build, 22 JVM tests, 189 main component assertions, 30 page-by-page assertions each at 340/440 dpi; light and dark background with 50%–150% size checks, same-signed APK.
+-[ ] Mobile phone retest: success rate of edge-to-edge swiping, cross-window tracking, notification update flashing and bottom exposure, actual position and 70% status bar readability.
 
-## 仍需真机确认
+## Still needs to be confirmed by real machine
 
-- [ ] 三星前台/输入法窗口报告、桌面避让、跨应用常驻及息屏解锁恢复。
-- [ ] 异形边界四方向校准、真实跟手触摸、左右手操作舒适度与原侧栏共存。
-- [ ] Shizuku 旋转/亮度、按应用方向、系统通知与第三方磁贴的外屏路由。
-- [ ] 状态信息、双卡信号、背景模糊和系统文件选择器导入导出的实际行为。
+-[ ] Samsung frontend/input method window reporting, desktop avoidance, cross-application persistence and screen unlock recovery.
+-[ ] Four-directional calibration of special-shaped borders, real hand touch, and left and right hand operation comfort coexist with the original sidebar.
+-[ ] Shizuku rotation/brightness, per-app orientation, external screen routing for system notifications and third-party tiles.
+-[ ] Actual behavior of status information, dual-SIM signal, background blur and system file picker import and export.
+The phone is currently not connected, and the above is reserved for verification; the limited automatic iteration has ended, and the original scheduled task has been suspended. Actual feedback will be received before continuing.
 
-手机目前未连接，以上保留为待验；有限自动迭代已结束，原定时任务已暂停，收到实际反馈再继续。
+## Acceptance and iteration agreement
 
-## 验收与迭代约定
+### 0.7: Native compact details and notification folding
 
-### 0.7：原生紧凑详情与通知折叠
+For details, see the actual implementation and boundaries at the top of `DESIGN-0.7.0.md`; after native access, acceptance will be based on local verification and real machine capabilities, and suspended scheduled tasks will not be automatically resumed.
 
-详见 `DESIGN-0.7.0.md` 顶部的实际实现与边界；原生接入后按本地验证及真机能力分别验收，不自动恢复已暂停的计划任务。
+-[x] Notification icon, title/text single-line folding, real overflow display expansion key, retain notification key corresponding status; local native check.
+-[x] The control center unified long-press details; the width and height of all self-drawn secondary pop-up windows are tightened according to the content, the safe area only has an upper limit, long names are wrapped, and super-high lists are scrolled.
+-[x] The self-drawn details are connected to the native RenderEffect, and the system fuzzy monitoring is used across windows; it falls back when the system does not support it or when power is saved, and the attribute animation respects the system switch. Actual machine performance has not been tested.
+-[x] The automatic rotation of external screen tools and the manual/application rule arbitration code have been connected; long pressing the slider will not accidentally change the volume through the simulator. Sensors and four-way physical mapping await real devices.
+-[ ] Detect Wi-Fi reading/connection, media routing, and system entrance external screen display respectively, without preview interaction instead of real machine capability verification.
+Each delivery round records actual versions, changes, test coverage, failures or unverified items. Failed builds, fictitious states, crossing gaps, inability to cancel gestures, or accidentally touching the app do not count as completion. The simulator proves native component behavior and does not replace the real-device conclusions of One UI external screen routing, system notifications, blur, cellular signal, and background persistence.
 
-- [x] 通知图标、标题/正文单行折叠、按真实溢出显示展开键，保留通知 key 对应状态；本地原生检查。
-- [x] 控制中心统一长按详情；所有自绘二级弹窗宽高随内容收紧，安全区只设上限，长名称换行、超高列表滚动。
-- [x] 自绘详情接入原生 RenderEffect，跨窗口沿用系统模糊监听；系统不支持或省电时回退，属性动画尊重系统开关。实机性能未验。
-- [x] 外屏工具自动旋转及手动/应用规则仲裁代码已接入；滑条长按不误改音量通过模拟器。传感器与四向物理映射待真机。
-- [ ] 分别探测 Wi-Fi 读取/连接、媒体路由、系统入口外屏显示，不用预览交互代替真机能力验证。
-
-每轮交付记录实际版本、变更、测试范围、失败或未验证项。构建失败、虚构状态、越过缺口、无法取消手势或误触应用均不算该项完成。模拟器证明原生组件行为，不代替 One UI 外屏路由、系统通知、模糊、蜂窝信号和后台常驻的真机结论。
-
-当前手机未连接。可独立完成的实现和本地验证继续推进；确需真机结果的事项明确列出，不用重复构建掩盖缺失证据。
+The phone is currently not connected. Implementation and local verification that can be completed independently continue to advance; matters that really require real machine results are clearly listed, so there is no need to repeat the construction to cover up missing evidence.

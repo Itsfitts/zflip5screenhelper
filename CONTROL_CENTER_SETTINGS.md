@@ -1,41 +1,41 @@
-# 控制中心设置
+#Control center settings
 
-目标：用户决定每行数量和工具内容，可视网格固定四行，少项留空位，超过四行时网格独立向下滚动；图标和格位尺寸不随按钮数量变化，按所选布局与外屏可用空间计算。设置只影响本工具，不修改系统DPI、分辨率、导航栏或权限。
+Goal: The user decides the number of each row and the content of the tool. The visual grid is fixed to four rows, and a few items are left empty. The grid scrolls down independently when there are more than four rows. The size of the icons and grids does not change with the number of buttons, and is calculated based on the selected layout and the available space on the external screen. The settings only affect this tool and do not modify the system DPI, resolution, navigation bar or permissions.
 
-## 0.8.0 已实现
+## 0.8.0 Implemented
 
-| 入口 | 行为 | 默认与边界 |
-| --- | --- | --- |
-| 布局预览 | 可展开/收起，复用正式控制面板布局构建器 | 默认收起；按设置窗口宽度展示，明确标注示意，不证明真机缺口/路由；不执行操作、不读取音量/媒体会话 |
-| 布局预设 | 标准4列、紧凑5列、易点3列，原子修改列数/疏密/名称/字号 | 不改变按钮列表、工具模块、位置与闲置策略；应用后可撤销 |
-| 每行图标数量 | 3／4／5列，所有旋转方向共用 | 默认4；改变密度/字体/旋转不暗改列数 |
-| 排列疏密 | 紧凑／标准／宽松，协调行内空间与图形目标尺寸 | 默认标准；窄区仍按空间适配；可滚动，不以裁切强塞 |
-| 显示按钮名称 | 显示或隐藏 | 默认显示；隐藏后回收文字区域，保留完整无障碍名称、真实状态及长按详情 |
-| 名称大小 | 小／标准／大，9／10／12sp | 默认标准，尊重系统字体缩放；最多两行，超长内容省略且保留完整无障碍名称 |
-| 工具区位置 | 自动／侧边／下方 | 默认自动；侧边跟随左右手；空间不够时提示并下移，保留列数 |
-| 工具区内容 | 外屏亮度、媒体音量、媒体卡独立开关 | 默认全部开启；关闭后不创建对应组件，全关网格用满可用宽度 |
-| 外屏亮度 | 仅作用所选显示器 | 关闭模块后不再从控制面板请求亮度读取；无特权连接时不伪造可控状态 |
-| 媒体音量 | 调整手机媒体音量 | 设置说明明确整机范围 |
-| 闲置媒体收纳 | 无会话时缩为可见文字入口；有会话恢复完整卡 | 默认关闭；暂停会话仍可控，不按“未播放”收起；无权限始终短授权入口 |
-| 恢复与撤销 | 恢复布局、名称和工具区默认；撤销上次有效调节一次 | 不改变按钮列表、快捷栏、共享模糊、状态栏、手势、显示器、权限、应用方向或系统设置 |
-| 背景模糊 | 沿用支持能力与省电降级策略 | 与应用中心共享；不属于局部布局恢复/撤销范围 |
-| 状态栏与手势 | 跳转原有设置 | 控制中心时间/通知在左，网络/电池在右，始终显示电池百分比 |
-| 快捷按钮 | 添加、删除、上移、下移 | 保留用户现有列表；新增布局预设不替换按钮 |
+| Entrance | Behavior | Defaults and Boundaries |
+| ---| ---| ---|
+| Layout preview | Can be expanded/collapsed, reuse the official control panel layout builder | Default collapsed; displayed according to the set window width, clearly marked, does not prove the real machine gap/routing; does not perform operations, does not read the volume/media session |
+| Layout defaults | Standard 4 columns, compact 5 columns, easy click 3 columns, atomic modification of column number/density/name/font size | Do not change button list, tool module, position and idle strategy; can be revoked after application |
+| Number of icons per row | 3/4/5 columns, common to all rotation directions | Default 4; changing density/font/rotation does not change the number of columns |
+| Arrangement density | Compact/Standard/Loose, coordinate the in-line space and the target size of graphics | Default standard; narrow areas are still adapted to the space; scrollable, not forced by cropping |
+| Show button name | Show or hide | Displayed by default; after hiding, the text area is recovered and the complete accessible name, real status and long press details are retained |
+| Name size | Small/Standard/Large, 9/10/12sp | Default standard, respect system font scaling; up to two lines, long content is omitted and the complete accessible name is retained |
+| Tool area position | Auto/Side/Bottom | Default is automatic; the side follows the left and right hands; prompts and moves down when there is not enough space, retaining the number of columns |
+| Tool area content | Independent switches for external screen brightness, media volume, and media card | All are enabled by default; no corresponding components will be created after being turned off, and the grid will fill up the available width when turned off |
+| External screen brightness | Only affects the selected display | No longer requests brightness reading from the control panel after closing the module; does not fake a controllable state when connected without privileges |
+| Media volume | Adjust mobile phone media volume | Setup instructions clarify the scope of the entire machine |
+| Idle media storage | Shrink to visible text when there is no conversation; restore the entire card if there is a conversation | Closed by default; paused sessions are still controllable, do not press "Unplayed" to close; without permission, always shorten the authorization portal |
+| Restore and Undo | Restore layout, name, and tool area defaults; undo the last effective adjustment once | Do not change button list, shortcut bar, share blur, status bar, gestures, display, permissions, app orientation, or system settings |
+| Background blur | Inherited support capabilities and power saving downgrade strategy | Shared with application center; does not fall within the scope of partial layout restoration/undoing |
+| Status bar and gestures | Jump to original settings | Control center time/notifications on the left, network/battery on the right, battery percentage always displayed |
+| Shortcut buttons | Add, delete, move up, move down | Keep the user's existing list; add layout defaults without replacing buttons |
 
-预设取值：标准=4列/标准疏密/显示名称/标准字；紧凑=5列/紧凑疏密/显示名称/小字；易点=3列/宽松疏密/显示名称/大字。“易点”是空间分配偏好，不宣称在所有极端尺寸下都达到相同触摸面积。
+Default values: standard = 4 columns/standard density/display name/standard font; compact=5 columns/compact density/display name/small font; easy=3 columns/relaxed density/display name/large font. "Easy points" are space allocation preferences and do not claim to achieve the same touch area at all extreme sizes.
 
-## 配置与生命周期
+## Configuration and life cycle
 
-- 布局快照为版本7，`panelColumns`继续作为列数唯一权威，`panelOptions`保存8项新增设置；完整配置为版本10。旧配置1–9及旧布局1–6按对应版本保留已有字段，缺失字段采用稳定默认值，已有字段按各自版本恢复。无效选项或类型在提交前整体拒绝。
-- `panel_undo`独立于全局`layout_undo`和布局备份。重复应用相同值不覆盖撤销；全局恢复、全局重置和配置导入清理过期局部撤销。局部撤销只保留一份有界快照，不随配置导出。
-- 关闭媒体模块意味着不挂载`MediaCardView`；最后一个媒体表面卸载后释放系统回调。闲置收纳入口仍可见并保留事件订阅，用于响应新会话，不增加轮询。
-- 设置采用离散选项，每次有效修改原子保存并更新设置预览；打开的悬浮面板沿用既有合并刷新路径。没有每帧写入偏好或新增后台图形工作。
-- 预览不会真实触发快捷键、音量调节、Shizuku、媒体播放或详情。只用于排列比较，不证明三星窗口路由和物理触控。
+-Layout snapshot is version 7，`panelColumns`Continuing to be the only authority for column numbers, `panelOptions` saves 8 new settings; the complete configuration is version 10. Old configurations 1–9 and old layouts 1–6 retain existing fields according to the corresponding versions, missing fields use stable default values, and existing fields are restored according to their respective versions. Invalid options or types are rejected in their entirety before submission.
+-`panel_undo` is independent of global `layout_undo` and layout backup. Repeated application of the same value does not overwrite the undo; global recovery, global reset and configuration import cleanup expired partial undo. Partial undo only retains a bounded snapshot and does not export it with the configuration.
+-Closing the media module means not mounting `MediaCardView`; releasing the system callback after the last media surface is unmounted. The idle storage entrance is still visible and event subscriptions are retained to respond to new sessions without increasing polling.
+-Settings adopt discrete options, and each effective atomic modification saves and updates the settings preview; the opened floating panel follows the existing merge refresh path. There is no per-frame writing preference or new background graphics work.
+-Preview will not actually trigger shortcut keys, volume adjustment, Shizuku, media playback or details. It is only used for arrangement comparison and does not prove Samsung's window routing and physical touch.
 
-状态栏另提供左右圆角安全留白（默认各16dp，可调0–48dp），随全局布局/配置保存；控制中心局部恢复和撤销不修改该共享设置。详见 [0.9.3验证记录](dist/开发设计/VALIDATION-0.9.3.md)。
+The status bar also provides left and right rounded corners for safety (default 16dp each, adjustable 0–48dp), which are saved with the global layout/configuration; local restore and undo in the control center does not modify the shared settings. See details [0.9.3 Verification records](dist/开发设计/VALIDATION-0.9.3.md)。
 
-## 后续方向
+## Follow-up direction
 
-拖动排序、精确滑条尺寸、短名称映射、动效档位、材质预设和命名场景尚未实现。当前保留上移/下移排序；先在Flip5验证新增组合的手感，再决定是否增加更多调节项。通知内联回复需单独评估，不与布局版本捆绑。
+Drag sorting, precise slider sizing, short name mapping, animation gears, material presets and named scenes are not implemented yet. The up/down sorting is currently retained; first verify the feel of the new combination in Flip5 before deciding whether to add more adjustment items. Notification inline replies are evaluated separately and are not bundled with the layout version.
 
-构建与验证入口见 [开发说明](docs/development.md)，本版范围和验证边界见 [0.8.0验证记录](dist/开发设计/VALIDATION-0.8.0.md)。
+For the construction and verification entrance, see [Development Notes](docs/development.md)，The scope and verification boundaries of this version can be found in [0.8.0 Verification Record](dist/开发设计/VALIDATION-0.8.0.md)。

@@ -1,115 +1,111 @@
-# 外屏助手 0.7 交互设计提案
+# External screen assistant 0.7 interaction design proposal
 
-状态：原生 0.7.0 已接入紧凑通知、统一详情卡、滑条长按、网络读取、媒体路由及外屏自动旋转。本文件保留完整设计目标；实施差异见下文，不能把设计表格中的目标全部当作已交付能力。目标是 Flip5 / One UI 8.5 / Android 16 / Shizuku，无 root。
+Status: Native 0.7.0 has access to compact notifications, unified details card, slider long press, network reading, media routing and external screen automatic rotation. This document retains the complete design goals; implementation differences are shown below, and all goals in the design table cannot be regarded as delivered capabilities. Targets Flip5/One UI 8.5/Android 16/Shizuku, no root.
 
-### 当前原生落地与边界
+### Current native implementation and boundaries
 
-- 所有控制中心自绘详情采用同一内容尺寸容器，正文超高才滚动。标题/关闭及底部入口固定，长名称换行。原生宽度上限 296dp，实际通常更窄；系统拥有的选网、声音等窗口不受本容器控制。
-- 主控制面板使用可用宽高共同选择列数和行高，网格及滑条占用完整的内容视口，删除常驻说明页脚，刷新放入标题。按钮文字和图标不随剩余空间机械放大；更多按钮或大字体达到最低可读尺寸时才滚动。检查实际最后一行和滑条边界，不能只检查容器大小或用隐藏内容冒充“没有留白”。
-- 通知图标、单行标题/正文及展开已实现；默认折叠，刷新保留本次面板内的展开状态。优先 BigText，再使用 EXTRA_TEXT，每段最多 4096 字符；尚未拼接 MessagingStyle 完整消息历史，也未新增默认展开偏好。
-- Wi-Fi 通过受限 Shizuku 命令读取当前状态、保存列表和扫描缓存，手动扫描最多每 30 秒一次；读取失败如实提示。点按网络打开系统 Wi-Fi 选择界面，由用户在系统中选择/认证；本版尚未直接连接保存的网络。
-- 音量长按展示 MediaRouter2 报告的本机选中与可转移输出，切换等待回调；提供前台 Activity 调用的系统输出入口。其他应用的远程媒体会话使用系统入口，本版不代理任意播放器。
-- 外屏自动旋转在显式启用时以当前握持方向校准，方向稳定 280ms 后请求；手动角度和显式应用规则停止传感器控制。当前是进程内模式，息屏、锁屏、服务结束或失败后停止，需重新点开；不改变系统全局自动旋转。
-- 勿扰定时与允许打扰、蓝牙配对、显示设置交给系统。手电筒本版仅提供真实开关，未添加亮度档位；延迟截图尚未接入。未实现的能力没有演示开关。
-- 自有下层内容使用 RenderEffect，跨窗口背景沿用 blur-behind；没有截图轮询。二级卡片使用系统属性动画，关闭/禁用动画有效。软件 Canvas 截图无法呈现 RenderEffect/窗口圆角，因此视觉验证改为硬件渲染截图，并让页脚自身带底部圆角以保持两条绘制路径一致。
-- 手机未连接。几何、手势和数据更新可用模拟器验证；One UI 外屏的窗口路由、Shizuku 权限、方向传感器映射、真正设备切换和模糊性能仍待真机验收。
+-All self-drawn details in the control center use the same content size container, and the text will only scroll if it is super high. Title/closing and bottom entry fixed, long names wrapped. The upper limit of the native width is 296dp, but the actual width is usually narrower; the network selection, sound and other windows owned by the system are not controlled by this container.
+-The main control panel uses the available width and height to select the number of columns and row heights. The grid and slider occupy the complete content viewport, delete the permanent description footer, and refresh the title. Button text and icons do not mechanically expand with remaining space; more buttons or large fonts scroll only when they reach the minimum readable size. Check the actual last row and slider border, don't just check the container size or use hidden content to pass off "no white space".
+-Notification icons, single-line title/text and expansion have been implemented; the default is folding, and refreshing retains the expanded state in this panel. Prioritize BigText, then use EXTRA_TEXT, each paragraph can be up to 4096 characters; the complete message history of MessagingStyle has not been spliced, and the default expansion preference has not been added.
+-Wi-Fi reads the current status, save list, and scan cache through limited Shizuku commands, with manual scanning up to once every 30 seconds; read failure prompts are reported accordingly. Click Network to open the system Wi-Fi selection interface, which is selected/authenticated by the user in the system; this version has not directly connected to the saved network.
+-A long press on the volume shows the local selection and transferable output reported by MediaRouter2, switching and waiting for callbacks; providing a system output entrance for foreground Activity calls. The remote media sessions of other applications use the system entrance. This version does not proxy any player.
+-External screen auto-rotation is calibrated to the current holding orientation when explicitly enabled, and is requested after 280ms of stable orientation; manual angle and explicit application rules stop sensor control. It is currently in the in-process mode. It will stop after the screen is paused, the screen is locked, the service ends or fails, and you need to click it again; it does not change the global automatic rotation of the system.
+-Leave the Do Not Disturb schedule and Allow Disturb, Bluetooth pairing, and display settings to the system. This version of the flashlight only provides real switches and does not add brightness levels; delayed screenshots have not yet been connected. Unimplemented capabilities have no demo switch.
+-Use RenderEffect for your own underlying content, and blur-behind for cross-window backgrounds; there is no screenshot polling. Secondary cards use system property animation, and the closing/disabling animation is valid. Software Canvas screenshots cannot render RenderEffect/window rounded corners, so the visual verification is changed to hardware rendering screenshots, and the footer itself has bottom rounded corners to keep the two drawing paths consistent.
+-The phone is not connected. Geometry, gestures and data updates can be verified with the simulator; window routing, Shizuku permissions, orientation sensor mapping, real device switching and blur performance of the One UI external screen still need to be accepted by the real machine.
 
-## 1. 通知：图标 + 两行内容，默认折叠
+## 1. Notification: icon + two lines of content, collapsed by default
 
-折叠态：左侧 18–22dp 通知小图标，中间第一行标题、第二行正文，右侧清除与展开操作。去掉常驻的整块应用名文字。优先使用通知 smallIcon；不可读或缺失时用应用图标。完整应用名在展开态及无障碍描述中保留。
+Folded state: 18–22dp small notification icon on the left, first line of title, second line of text in the middle, clear and expand operations on the right. Remove the entire permanent application name text. Use notification smallIcon first; use app icon if unreadable or missing. The full app name is preserved in the expanded state and accessibility description.
 
-- 标题和正文默认各一行，超出省略；无正文时不硬撑空行。目标短卡约 48–52dp，最终按字号和触控验证，不能把此目标当成实测结果。
-- 依据真实文字排版是否被截断决定显示展开箭头，不按字符数猜测；换 DPI、字体或宽度后重算。
-- 展开显示完整可取得的标题/正文、应用名和时间；超长内容在受限高度内阅读。清除键与展开键互不抢点击，常驻不可清除通知不画无效叉号。
-- 点击内容打开原通知；点击箭头只展开/折叠；清除只作用于当前通知。
-- 展开状态按 notification key 保存在内存。常驻通知重复刷新不自动折叠、不重建窗口、不重置滚动；通知删除时清理对应状态。正文优先读取可用的 BigText / MessagingStyle 信息，不把 EXTRA_TEXT 一行当成完整消息历史，也不承诺系统隐藏的敏感内容可恢复。
-- 展开/收起约 160–200ms，高度平滑变化；保持当前阅读卡片的顶部位置。默认折叠，设置中可改为“记住本次展开”或“默认展开”。
+-The title and body are each one line by default, and any excess will be omitted; no blank lines will be used when there is no body. The target short card is about 48–52dp. The final verification is based on font size and touch. This target cannot be regarded as the actual measurement result.
+-The expansion arrow is displayed based on whether the actual text layout is truncated, not guessed based on the number of characters; recalculate after changing the DPI, font or width.
+-Expand to display the fully available title/text, application name and time; overly long content can be read within a restricted height. The clear key and the expand key do not compete with each other for clicks, and the permanent unclearable notification does not draw an invalid cross.
+-Click on the content to open the original notification; click on the arrow to expand/collapse only; clearing only affects the current notification.
+-Press notification key to save the expanded state in memory. Resident notifications will not be automatically folded, windows will not be rebuilt, and scrolling will not be reset when refreshed repeatedly; the corresponding status will be cleared when the notification is deleted. The main text reads the available BigText /MessagingStyle information first, does not treat the EXTRA_TEXT line as the complete message history, and does not promise that the sensitive content hidden by the system can be recovered.
+-Expand/fold about 160–200ms, height changes smoothly; maintain the top position of the currently read card. The default folding can be changed to "Remember this expansion" or "Default expansion" in the settings.
 
-## 2. 统一规则与长按表
+## 2. Unified rules and long press table
 
-轻点执行主要动作，长按打开详情。第 4 条按“点按切换自动旋转、长按显示强制角度”理解。控制中心详情入口与快捷栏长按编辑分开处理，避免破坏已有快捷栏手势。
+Tap to perform the main action, long press to open details. Article 4 is understood as "click to switch automatic rotation, long press to display forced angle". The control center details entry and shortcut bar long press editing are handled separately to avoid damaging existing shortcut bar gestures.
 
-| 项目 | 轻点 / 拖动 | 长按详情 | 能力边界 |
-| --- | --- | --- | --- |
-| Wi-Fi | 开关 | 当前连接、已保存/附近网络、刷新、更多 WLAN 设置 | 自绘列表需探测读取/连接权限；系统选网作为明确入口 |
-| 蓝牙 | 开关 | 已连接/已配对设备、添加设备、更多蓝牙设置 | 配对交给系统；不把枚举到设备等同于可直接连接 |
-| 移动数据 | 当前可确认的开关；未知则明确选择 | SIM、网络设置、流量入口 | 不猜默认数据卡，不先承诺可以无确认切换 SIM |
-| 自动旋转 | 工具自动 ↔ 锁定当前角度 | 自动开关、0/90/180/270°、交回系统 | 只控制所选外屏；传感器能力与角度映射需验证 |
-| 音量条 | 调媒体音量 | 当前播放器与可用媒体输出 | 使用媒体路由，不能拿通话设备切换冒充媒体输出 |
-| 亮度条 | 调外屏亮度 | 自动亮度、护眼/显示设置 | 仅显示本机支持项，不把主屏自动亮度误称外屏能力 |
-| 勿扰 | 开关 | 15 分钟 / 1 小时 / 手动关闭、允许打扰设置 | 定时退出须持久化期限和恢复逻辑；缺权限保留系统入口 |
-| 手电筒 | 开关 | 亮度档位（若支持） | 不支持亮度等级时不显示假滑条 |
-| 飞行模式 | 开关 | Wi-Fi / 蓝牙例外入口、网络设置 | 不自动更改用户无线连接偏好 |
-| 截图 | 外屏截图 | 立即 / 延迟 3 秒、查看截图 | 不默认启用不可靠的第三方长截图 |
-| 媒体 | 播放 / 暂停 | 播放器、上一首/下一首、输出选择 | 只显示当前可用的媒体会话 |
-| 锁屏 | 锁屏 | 锁屏相关设置、临时暂停悬浮层 | 长按不立即锁屏，避免误操作 |
-| 应用中心 | 打开侧栏 | 常用项、固定应用、应用规则 | 复用现有配置，不重复做一套菜单 |
-| 设置 | 打开设置 | 控制中心编辑与布局入口 | 不把长按统一占用为编辑所有按钮 |
-| 第三方磁贴 | 现有磁贴点击请求 | 磁贴偏好；无入口则应用信息 / 移除 | 优先标准 ACTION_QS_TILE_PREFERENCES，但入口可不存在或受权限保护 |
+| Project | Tap/drag | Long press for details | Capability Boundaries |
+| ---| ---| ---| ---|
+| Wi-Fi | Switch | Current connection, saved/nearby networks, refresh, more WLAN settings | Self-drawn list requires detection of read/connection permission; the system selects the network as a clear entrance |
+| Bluetooth | Switch | Connected/paired devices, adding devices, more Bluetooth settings | Leave pairing to the system; not enumerating to the device is equivalent to direct connection |
+| Mobile data | Currently confirmable switch; if unknown, select clearly | SIM, network settings, traffic entrance | Do not guess the default data card, and you can switch SIM without confirmation without first committing |
+| Automatic rotation | Tool automatic ↔ Lock current angle | Automatic switch, 0/90/180/270°, return system | Only control the selected external screen; sensor capability and angle mapping need to be verified |
+| Volume bar | Adjust media volume | Current player and available media output | When using media routing, you cannot use the call device to switch and pretend to be media output |
+| Brightness bar | Adjust external screen brightness | Automatic brightness, eye protection/display settings | Only display the native support items, do not mistake the main screen automatic brightness as external screen capabilities |
+| Do not disturb | switch | 15 minutes /1 hour /manual shutdown, allow disturbance settings | scheduled exit requires persistence period and recovery logic; lack of permissions to retain system entrance |
+| Flashlight | Switch | Brightness level (if supported) | Do not display fake slider when brightness level is not supported |
+| Airplane Mode | On/Off | Wi-Fi/Bluetooth exception entry, network settings | Do not automatically change user wireless connection preferences |
+| Screenshots | External screen screenshots | Immediately /delay 3 seconds, view screenshots | Do not enable unreliable third-party long screenshots by default |
+| Media | Play/Pause | Player, previous/next track, output selection | Show only currently available media sessions |
+| Lock screen | Lock screen | Lock screen related settings, temporary suspension of floating layer | Long press will not lock the screen immediately to avoid misoperation |
+| Application Center | Open the sidebar | Frequently used items, fixed applications, application rules | Reuse existing configurations without repeating a set of menus |
+| Settings | Open Settings | Control Center Editing and Layout Entry | Do not use long press to edit all buttons |
+| Third-party tiles | Existing tile click requests | Tile preferences; apply info/remove if no entry | Priority criteria ACTION_QS_TILE_PREFERENCES, but entry may not exist or be protected by permissions |
 
-[TileService 官方说明](https://developer.android.com/reference/android/service/quicksettings/TileService#ACTION_QS_TILE_PREFERENCES)定义了磁贴偏好入口，并允许应用用权限保护它。因此不能承诺每个第三方按钮都能得到原生长按菜单。
+[TileService official description](https://developer.android.com/reference/android/service/quicksettings/TileService#ACTION_QS_TILE_PREFERENCES) defines the tile preference entry and allows applications to protect it with permissions. Therefore, there is no guarantee that every third-party button will get a native long-press menu.
 
-## 3. Wi-Fi：展示与连接分开验收
+## 3. Wi-Fi: separate acceptance of display and connection
 
-详情卡宽高均随内容收紧：当前连接优先，已保存与附近网络分组；行内小图标、名称、连接状态，下面固定“更多 WLAN 设置”。只有列表滚动，标题和底部入口不滚走；只有一个网络时卡片缩短。短网络名不撑成全屏宽卡片，长名称在安全宽度内换行，状态必要时另起一行，不靠继续缩小字号消除空白。
+The width and height of the details card are tightened according to the content: the current connection is given priority, saved and nearby networks are grouped; the small icon, name, and connection status are in the row, and "More WLAN settings" is fixed below. Only the list scrolls, the title and bottom entry do not scroll away; the card is shortened when there is only one network. Short network names cannot be stretched into full-screen wide cards. Long names are wrapped within the safe width and placed on a new line when necessary. Do not continue to reduce the font size to eliminate white space.
 
-用户追加密度要求：Wi-Fi 二级弹窗默认使用“紧凑”局部布局。名称与状态共用一行，图标约 16–18dp、名称 11–12sp，网络行目标 32–36dp；压缩标题、分组和底部入口，把省下的高度交给列表。整行均可点击。预览可在“紧凑/标准”之间比较，不能把它实现成提高整机 densityDpi（那通常反而使 dp 控件占用更多像素）。实际行高仍需按字体缩放与误触验证；其他详情卡尺寸不随本项改变。
+User-added density requirement: Wi-Fi secondary pop-up window uses "compact" partial layout by default. The name and status share one line, the icon is about 16–18dp, the name is 11–12sp, and the network line target is 32–36dp; compress the title, grouping, and bottom entry, and give the saved height to the list. The entire row is clickable. The preview can be compared between "compact/standard", it cannot be implemented to increase the overall densityDpi (which usually makes the dp control take up more pixels). The actual line height still needs to be scaled according to the font and verified by accidental touch; other details card sizes will not change with this item.
+Compact mode further eliminates the need for repeated group title lines, distinguishes by "Connected/Saved/Requires Confirmation" status, and merges the refresh button into the top bar; Standard mode retains group titles. The default width browser preview shows 6 sample networks simultaneously, with at least 4 full network rows under a 320px container, with the rest scrolling; this is a preview layout measurement, not actual measured DPI on the phone or network scan results.
 
-紧凑模式进一步省去重复的分组标题行，通过“已连接 / 已保存 / 需确认”状态区分，刷新按钮并入顶栏；标准模式保留分组标题。默认宽度的浏览器预览可同时看到 6 个示例网络，320px 容器下至少 4 个完整网络行，其余滚动；这是预览布局测量，不是手机实测 DPI 或网络扫描结果。
+Provided by Android [Settings.Panel.ACTION_WIFI](https://developer.android.com/reference/android/provider/Settings.Panel#ACTION_WIFI) The system is a floating entrance, but its style and external screen routing are determined by One UI. This tool cannot apply custom animations to the system window.
 
-Android 提供 [Settings.Panel.ACTION_WIFI](https://developer.android.com/reference/android/provider/Settings.Panel#ACTION_WIFI) 系统浮动入口，但它的样式及外屏路由由 One UI 决定，本工具不能给系统窗口套上自定义动画。
+The self-drawn route first detects the current status readable by Shizuku, saves the network and scan results. Common modern target SDK application[getConfiguredNetworks](https://developer.android.com/reference/android/net/wifi/WifiManager#getConfiguredNetworks()) Complete saved networks cannot be read; therefore adding a Wi-Fi permission is not considered a complete implementation.[AOSP WifiShellCommand](https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/android14-release/service/java/com/android/server/wifi/WifiShellCommand.java) The permission paths of list/scan and connect commands are different. This is only a research basis and not a passing evidence for One UI 8.5.
 
-自绘路线先检测 Shizuku 可读的当前状态、保存网络和扫描结果。普通现代目标 SDK 应用的 [getConfiguredNetworks](https://developer.android.com/reference/android/net/wifi/WifiManager#getConfiguredNetworks()) 不能读取完整已保存网络；因此不把加一个 Wi-Fi 权限当成完整实现。[AOSP WifiShellCommand](https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/android14-release/service/java/com/android/server/wifi/WifiShellCommand.java) 中列表/扫描与连接命令的权限路径不同，这只是研究依据，不是 One UI 8.5 的通过证据。
+Specific operations: The available list is read by a restricted Shizuku operation; only scans when entering the page or manually refreshing, comply with system throttling, and stops refreshing after closing. Saving the network and switching directly is an independent capability check. If it fails, the original connection will be retained and the system panel will be provided. New networks, passwords, and enterprise authentication are given priority to the system, and passwords or SSID history are not saved in this tool. A clear prompt when the system panel cannot be left on the external screen and does not silently open the damaged home screen as a successful result.
 
-具体操作：可用列表由受限 Shizuku 操作读取；只在进入页或手动刷新时扫描，遵守系统节流，关闭后停止刷新。保存网络直接切换属于独立能力检查，失败保留原连接并提供系统面板。新网络、密码及企业认证优先交给系统，不在本工具保存密码或记录 SSID 历史。系统面板无法留在外屏时明确提示，不静默打开损坏的主屏作为成功结果。
+## 4. Media output: around the session being played
 
-## 4. 媒体输出：围绕正在播放的会话
+Long press the volume bar to display switchable audio routes for the current player, phone speakers, and system reports. The current route is checked; the status is indicated when there is no playback session. When there are multiple players, select the target session first; you cannot use "All AudioDeviceInfo" to create a list that cannot actually be switched.
 
-长按音量条，显示当前播放器、手机扬声器和系统报告可切换的音频路由。当前路由有勾选；没有播放会话时说明状态。多个播放器时先选目标会话；不能用“所有 AudioDeviceInfo”拼一个实际无法切换的列表。
+[MediaRouter2.showSystemOutputSwitcher](https://developer.android.com/reference/android/media/MediaRouter2#showSystemOutputSwitcher())Since API 34 provides the system output panel, the calling context needs to be visible in the foreground, and the system appearance and behavior may vary depending on the device. Agent controls other applications [MediaRouter2](https://developer.android.com/reference/android/media/MediaRouter2) Requires corresponding media control/routing permissions; notification listening permissions do not automatically equal full routing permissions.
 
-[MediaRouter2.showSystemOutputSwitcher](https://developer.android.com/reference/android/media/MediaRouter2#showSystemOutputSwitcher()) 自 API 34 提供系统输出面板，调用上下文需前台可见，系统外观和行为可能因设备而异。代理控制其他应用的 [MediaRouter2](https://developer.android.com/reference/android/media/MediaRouter2) 需要相应媒体控制/路由权限；通知监听许可不自动等于全部路由权限。
+Proposed process: Identify the current media session → Query transferable routes → Request transfer → Wait for system callback before checking. The old route is retained during the switch, and the failure reason is displayed if it fails. Shizuku proxy capabilities and One UI routing must be tested; if necessary, request the system output panel through the Activity visible on the external screen. Compatibility of Chromecast, LE Audio, listening devices, and individual player remote sessions is not guaranteed.
 
-拟定流程：识别当前媒体会话 → 查询可转移路由 → 请求转移 → 等系统回调后再勾选。切换中保留旧路由，失败显示失败原因。Shizuku 代理能力与 One UI 路由必须实测；必要时通过外屏可见的 Activity 请求系统输出面板。不能保证 Chromecast、LE Audio、听力设备和各播放器远程会话全部兼容。
+The volume gesture must be redone for arbitration: only the original value is recorded when pressed; the output details are turned on after about 420ms of inactivity, and the volume is not changed during this period. After moving beyond the system touch slop, cancel the long press and enter dragging; letting go will not make another click. Cancel/multi-finger to restore the original preview value. The same entry is also used by long-pressing the speaker icon at the bottom.
 
-音量手势必须重做仲裁：按下时只记录原值；静止约 420ms 打开输出详情，期间不改变音量。移动超过系统 touch slop 后取消长按并进入拖动；松手不再补一次点击。取消/多指恢复原预览值。长按底部扬声器图标也采用同一入口。
+## 5. External screen rotation
 
-## 5. 外屏旋转
+Currently 0.6.0 can specify the external screen angle and "return the system"; **Returning the system does not mean that the Samsung external screen will automatically rotate according to gravity**.
+It is recommended to add an independent "automatic rotation of the external screen of this tool" mode: the direction is only monitored when the target external screen is on and the service is running; the new direction is stable for about 250ms before switching, adding angle hysteresis, and maintaining it when lying flat. Stop listening after the screen is turned off, the monitor is removed, the screen is locked, or disabled; operate the application angle through the existing restricted Shizuku displayId, and confirm the actual results with each switch.
 
-现有 0.6.0 能指定外屏角度以及“交回系统”；**交回系统不等于三星外屏一定会按重力自动转动**。
+Click to turn off automatic to lock the current actual angle; long press to display four direction indications, select an angle and exit tool automatic at the same time. A "handover system" is also provided, which is automatically and clearly distinguished from the tool. The button cannot be drawn as successfully opened when the sensor is missing, Shizuku is unavailable, or the command is not confirmed.
 
-建议增加独立的“本工具外屏自动旋转”模式：只在目标外屏亮起且服务运行时监听方向；新方向稳定约 250ms 后才切换，加角度迟滞，平放时保持。屏幕关闭、显示器移除、锁屏或禁用后停止监听；通过现有受限 Shizuku displayId 操作应用角度，每次切换确认实际结果。
+A rotation controller coordinates automatic mode, manual angle, and application rules. Users explicitly select/application rules take priority to avoid existing application rules being overwritten by sensors as soon as they take effect. Keep the automatic rotation conflict prompts of other external screen tools, and cannot cycle to grab directions at the same time.
 
-点击关闭自动时锁定当前实际角度；长按显示四个方向示意，选择角度同时退出工具自动。另提供“交回系统”，与工具自动明确区分。传感器缺失、Shizuku 不可用或命令未确认时不能把按钮画为成功开启。
+## 6. Notification, control, and details are unified and natively blurred
 
-由一个旋转控制者协调自动模式、手动角度、按应用规则。用户明确选择/应用规则优先，避免已有应用规则刚生效就被传感器覆盖。保留其他外屏工具自动旋转冲突提示，不能同时循环抢方向。
+The latest requirements include all available background layers: notification center, control center, rotation/media details, Wi-Fi and media output self-painted pop-up layers, and application center overlays. Text, icons, sliders, and lists remain sharp without giving each card its own set of blur.
+-Reuse Android 12+ cross-window blur-behind /background blur and existing availability listeners for other app backgrounds; use translucent dark surfaces. The system output/network selection window is drawn by the system, and its material cannot be taken over by this tool.
+-For the scene where the internal control center of this tool is covered by the details card, Android 12+ uses RenderEffect to slightly blur the underlying content container, so that the details card and the operation text remain independent and clear. Nested details replace content, and the third and fourth layers of blur are no longer superimposed.
+-No screenshot polling, no CPU generation of blurred bitmaps, no acquisition of other application screens to pretend real-time blurring. Stop the display and immediately unbind the monitor, cancel the animation and work tasks.
+-The main panel is moderately blurry, and the internal details are lightly blurred; it is used as a starting parameter adjustment rather than a conclusion on device performance. For normal animation, try to only change the displacement, scaling, and transparency, keep the blur radius stable, and avoid creating filter objects every frame.
+-Give priority to following when dragging. If the real frame time display cost is too high, downgrade to mask and restore blur after stabilization. Power saving, system-off blur, reduced transparency, or low-performance mode use pure black/high opacity background; operation and information are not affected.
+-Appearance settings provide "Auto (recommended)/Off", intensity "Light/Standard"; low performance automatic downgrading does not change the user's saved preferences. Respect the system to reduce animation/animation scaling.
 
-## 6. 通知、控制、详情统一原生模糊
+Native boundaries based on:[AOSP Window blurs](https://source.android.com/docs/core/display/window-blurs)Note that support depends on the device. Power saving and some system states can be disabled at runtime; you need to monitor and prepare for opaque fallback.[RenderEffect](https://developer.android.com/reference/android/graphics/RenderEffect)It is used for its own View/RenderNode content effect, not for reading other windows.
 
-最新要求纳入所有可用背景层：通知中心、控制中心、旋转/媒体详情、Wi-Fi 与媒体输出自绘弹层、应用中心浮层。文字、图标、滑条与列表保持锐利，不给每张卡片独立套模糊。
+## 7. Animation and space
 
-- 对其他应用背景，复用 Android 12+ 跨窗口 blur-behind / background blur 和现有可用性监听；采用半透明深色表面。系统输出/选网窗口由系统绘制，其材质本工具无法接管。
-- 对本工具内部控制中心被详情卡覆盖的场景，Android 12+ 使用 RenderEffect 对下层内容容器轻度模糊，详情卡与操作文字独立保持清晰。嵌套详情替换内容，不再叠加第三、第四层模糊。
-- 不截屏轮询，不用 CPU 生成模糊位图，不获取其他应用画面来假装实时模糊。停止显示立即解绑监听、取消动画和工作任务。
-- 主面板中等模糊，内部详情轻模糊；作为起始调参而非设备性能结论。正常动画尽量只改变位移、缩放、透明度，模糊半径保持稳定，避免每帧创建滤镜对象。
-- 拖动时优先跟手，若真实帧时间显示成本偏高，降级为遮罩并在稳定后恢复模糊。省电、系统关闭模糊、减少透明效果或低性能模式使用纯黑/高不透明度底色；操作和信息不受影响。
-- 外观设置提供“自动（推荐）/关闭”，强度“轻/标准”；低性能自动降级不改动用户保存的偏好。尊重系统减少动画/动画缩放。
+Press and hold to trigger and then vibrate once. The details card is slightly displaced from the direction of the trigger control, about 0.92→1 zoom, and the transparency fades in, about 220–260ms; closing and pressing the reverse trajectory is about 160–200ms. Use the native ValueAnimator/View property animation and deceleration curve to make the speed first faster and then slower, without doing a fixed step size and frame rate dependent lerp loop.
 
-原生边界依据：[AOSP Window blurs](https://source.android.com/docs/core/display/window-blurs)说明支持与否取决于设备，省电和部分系统状态可在运行时禁用；需监听并准备不透明回退。[RenderEffect](https://developer.android.com/reference/android/graphics/RenderEffect)用于自身 View/RenderNode 内容效果，不是读取别的窗口。
+All self-drawn secondary pop-ups share the container rule of "content determines width and height", including Wi-Fi, media output, rotation, Bluetooth, Do Not Disturb, brightness and other long-press details. Cancel the default width and padding remaining height that are fixed by screen percentage; the width is determined by the title, action keys, longest normal content, and necessary padding. Short content is presented as a small card, the title and the close button cannot overlap, long names are allowed to wrap, and the font size is not reduced to fill layout problems. The safe area and readable line width are only used as the upper limit, not as the target size; the shared width limit of the preview is 320 CSS px, which cannot be directly regarded as Android dp or real pixels.
+The elastic layer is limited to the real safe zone of the current rotation direction. After the content height reaches the upper limit, only the text list is scrolled. The title, closing and bottom entrances remain available; no empty columns are reserved when there is no bottom entrance. The media takes up only the necessary height when there is only one output, and rotation preserves a compact 2×2 orientation array. Clicking Mask or Return will only close the current details, return to the original control center and retain scrolling; during masking, the touch will not be penetrated to the original button. Four-directional mapping of trigger points and elastic layer positions to avoid passing through the camera gap. Once the long press gesture is established, you cannot click the switch again when you release it.
 
-## 7. 动画与空间
+## 8. Implementation sequence and acceptance
 
-长按触发后轻震一次。详情卡从触发控件方向轻微位移、约 0.92→1 缩放、透明度渐入，约 220–260ms；关闭按反向轨迹约 160–200ms。使用原生 ValueAnimator / View 属性动画与减速曲线，让速度先快后慢，不做固定步长、依赖帧率的 lerp 循环。
+1. **Notification folding + unified detail container + fuzzy basics**: icon, real overflow detection, key state retention, transition, close/cancel, unavailable material fallback; protect 0.6 flicker-free path.
+2. **Long press of the rotary button and slider**: sensor state machine, four-angle selection, lock/return system, application rule arbitration, no volume jump.
+3. **Wi-Fi/Media Backend Detection**: Verify reading, requesting, confirming and display routing respectively; the ability to pass is accessed by self-drawn details, and the ability to pass is displayed to clear the system entrance. You cannot use the browser demonstration to check the impersonation device switch successfully.
+4. **Other long-press items and settings**: Open the actual available items according to the table above; third-party tiles give priority to applications providing access.
+5. **Acceptance**: Default/large font, 340/440 dpi, four rotations, expand when notification is updated, keyboard appears/disappears, cancels/multi-finger/return; real machine records frame timing, lag at actual refresh rate of 60/120Hz, fuzzy switch and power saving fallback. There is no commitment to achieve a fixed FPS at this stage.
 
-所有自绘二级弹窗共用“内容决定宽高”的容器规则，包括 Wi-Fi、媒体输出、旋转、蓝牙、勿扰、亮度及其他长按详情。取消按屏幕百分比固定铺满的默认宽度和填充剩余高度；宽度由标题、操作键、最长正常内容与必要内边距决定。短内容呈现小卡片，标题与关闭键不能相挤，长名称允许换行，不以缩小字体填补布局问题。安全区及可读行宽只作为上限，不作为目标尺寸；预览的共享宽度上限为 320 CSS px，不能直接当成 Android dp 或实机像素。
-
-弹层限于当前旋转方向的真实安全区，内容高度触及上限后仅正文列表滚动，标题、关闭与底部入口保持可用；没有底部入口时不预留空栏。媒体只有一个输出时只占必要高度，旋转保留紧凑的 2×2 方向阵列。点击遮罩或返回只关闭当前详情，回到原控制中心并保留滚动；遮罩期间不把触摸穿透给原按钮。四方向映射触发点与弹层位置，避免穿过摄像头缺口。长按手势一旦成立，松手不得再执行单击开关。
-
-## 8. 实施顺序与验收
-
-1. **通知折叠 + 统一详情容器 + 模糊基础**：图标、真实溢出检测、key 状态保留、转场、关闭/取消、不可用材质回退；保护 0.6 的无闪烁路径。
-2. **旋转按钮与滑条长按**：传感器状态机、四角度选择、锁定/交回系统、应用规则仲裁、音量无跳变。
-3. **Wi-Fi / 媒体后端探测**：分别验证读取、请求、确认和显示器路由；通过的能力接入自绘详情，未通过的显示明确系统入口。不能用浏览器演示勾选冒充设备切换成功。
-4. **其他长按项与设置**：按上表开放实际可用项；第三方磁贴优先尊重应用提供入口。
-5. **验收**：默认/大字体、340/440 dpi、四旋转、通知更新时展开、键盘出现/消失、取消/多指/返回；真机记录 frame timing、60/120Hz 实际刷新率下的卡顿、模糊开关与省电回退。现阶段不承诺达到固定 FPS。
-
-原生变更未新增运行时权限，也未恢复原先已暂停的自动迭代任务。安装与检查记录见 README 和 dist 下的验证报告。
+The native change does not add runtime permissions, nor does it restore the originally paused automatic iteration task. For installation and inspection records, see the verification report under README and dist.

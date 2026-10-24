@@ -1,68 +1,66 @@
-# Flip外屏助手
+# Flip external screen assistant
 
-## 功能体验
+## Function experience
 
-[在线互动教程](https://xiaomaoju.github.io/zflip5screenhelper/flipcover-tutorial.html) · [原型页面](https://xiaomaoju.github.io/zflip5screenhelper/)
+[Online interactive tutorial](https://xiaomaoju.github.io/zflip5screenhelper/flipcover-tutorial.html) · [prototype page](https://xiaomaoju.github.io/zflip5screenhelper/)
 
-互动原型使用示例数据展示主要功能，可自动演示或手动体验，不连接手机。软件的外屏窗口、系统操作和第三方小组件兼容性需以三星物理真机表现为准。
+The interactive prototype uses sample data to demonstrate the main functions and can be automatically demonstrated or experienced manually without being connected to the mobile phone. The software's external screen window, system operation and third-party widget compatibility are subject to the performance of Samsung's physical real machine.
 
-## 软件介绍
+## Software introduction
 
-Flip外屏助手是为三星 Galaxy Z Flip5 打造的外屏增强工具。项目起源于内屏损坏后的使用需求，希望只靠外屏，也能更方便地打开应用、切换任务、查看通知和控制常用功能，减少对展开手机的依赖。
+Flip External Screen Assistant is an external screen enhancement tool created for Samsung Galaxy Z Flip5. The project originated from the use demand after the internal screen was damaged. It is hoped that only relying on the external screen can open applications, switch tasks, view notifications and control common functions more conveniently, reducing reliance on unfolding the phone.
 
-软件无需 Root，部分系统操作需要 Shizuku 授权；通知、小组件和悬浮界面需要用户授予对应权限。主要面向 Galaxy Z Flip5 的 Android 16 / One UI 8.5 环境，实际兼容性取决于手机固件和系统权限。
+The software does not require root, and some system operations require Shizuku authorization; notifications, widgets, and floating interfaces require the user to grant corresponding permissions. Mainly for Android 16 /One UI 8.5 environment of Galaxy Z Flip5, actual compatibility depends on phone firmware and system permissions.
 
-## 界面展示
+## Interface display
 
-以下为已有版本的带框效果图，包含真机截图和模拟器示例，当前界面可能略有变化。
+The following is a framed rendering of an existing version, including real machine screenshots and simulator examples. The current interface may be slightly changed.
 
-| 应用启动器 · 原生卡片 | 控制中心 |
-| --- | --- |
-| <img src="dist/开发设计/readme-gallery/launcher.png" alt="三星原生应用启动器卡片" width="300"> | <img src="dist/开发设计/readme-gallery/controls.png" alt="外屏控制中心" width="300"> |
+| App Launcher · Native Cards | Control Center |
+| ---| ---|
+| <img src="dist/开发设计/readme-gallery/launcher.png" alt="Samsung native app launcher card" width="300"> | <img src="dist/开发设计/readme-gallery/controls.png" alt="External screen control center" width="300"> |
 
-| 通知中心 | 外屏多任务 |
-| --- | --- |
-| <img src="dist/开发设计/readme-gallery/notifications.png" alt="通知中心示例" width="300"> | <img src="dist/开发设计/readme-gallery/tasks.png" alt="外屏任务卡片示例" width="300"> |
+| Notification Center | External screen multitasking |
+| ---| ---|
+| <img src="dist/开发设计/readme-gallery/notifications.png" alt="Notification center example" width="300"> | <img src="dist/开发设计/readme-gallery/tasks.png" alt="Example of external screen task card" width="300"> |
 
-## 主要功能
+## Main functions
 
-### 快捷栏与手势入口
+### Shortcut bar and gesture entrance
 
-自定义外屏快捷按钮、顺序、位置和显示方式，快速打开常用功能。通过两条横向白条分别进入通知中心和控制中心，可按屏幕方向调整入口位置，支持滑动展开、收起和长按切换快捷栏显隐。
+Customize external screen shortcut buttons, order, location and display mode to quickly open frequently used functions. Enter the notification center and control center through two horizontal white bars respectively. The entrance position can be adjusted according to the screen direction. It supports sliding to expand and collapse, and a long press to switch the shortcut bar to show and hide.
 
-### 控制中心
+### Control Center
 
-集中操作亮度、音量、媒体播放及常用系统开关，支持 NFC、移动热点和外接设备管理。快捷项可在面板内添加、移除、拖动排序和撤销，支持3、4、5列布局。部分系统操作依赖 Shizuku，Android 快捷设置磁贴执行属于实验功能。
+Centrally operate brightness, volume, media playback and common system switches, and support NFC, mobile hotspot and external device management. Shortcut items can be added, removed, dragged, sorted and undone in the panel, and 3, 4, and 5 column layouts are supported. Some system operations rely on Shizuku, and the Android quick settings tile execution is an experimental feature.
 
-### 应用桌面、文件夹与 Dock
+### Apply Desktop, Folders and Dock
 
-在外屏浏览分页应用桌面，通过名称、别名或拼音搜索应用。支持手动排序、拖动整理、文件夹、布局锁定和应用显示偏好。
+Browse the paged application desktop on the external screen and search for applications by name, alias, or pinyin. Supports manual sorting, drag-and-drop organization, folders, layout locking and application display preferences.
 
-侧栏常用应用与 Dock 固定应用可分别配置。Dock 提供固定应用、最近应用、任务清理和应用中心入口，方便在外屏启动应用与切换任务。
+Commonly used applications in the sidebar and pinned applications in the Dock can be configured separately. The Dock provides access to pinned applications, recent applications, task cleanup, and application center, making it easy to launch applications and switch tasks on the external screen.
 
-### 外屏多任务
+### External screen multitasking
+Use task cards to browse recent tasks on the internal screen and the selected external screen. It supports horizontal swiping, clicking on the external screen to restore the original task, swiping up to close, sliding down to lock or unlock, and clearing the unlocked tasks in the list (including the internal screen). Internal screen tasks display small characters "(internal screen)" after the application name, and the card only displays the application icon; external screen task previews use system snapshots. Recent tasks retained by the system but not yet mounted to the screen can also be restored; the list is based on the data provided by the system. Removing a task does not guarantee that all service processes of the application will end, and the task lock is not equivalent to system persistence.
 
-以任务卡片浏览内屏与所选外屏的最近任务，支持横向滑动、点击在外屏恢复原任务、上滑关闭、下滑锁定或解锁，以及清理列表中的未锁定任务（含内屏）。内屏任务在应用名后显示小字“(内屏)”，卡片只显示应用图标；外屏任务预览使用系统快照。系统保留但尚未挂载到屏幕的最近任务也可恢复；列表以系统提供的数据为准。移除任务不保证结束应用的所有服务进程，任务锁也不等同于系统常驻。
+### Notifications and Media
 
-### 通知与媒体
+View authorized activity notifications, open or clear notifications, and display notification badges on the app desktop. Media cards provide playback controls and detailed progress. Notification badges reflect eligible activity notifications and do not equate to system absences.
 
-查看已授权的活动通知、打开或清除通知，并在应用桌面显示通知角标。媒体卡片提供播放控制和详情进度。通知角标反映符合条件的活动通知，不等同于系统未读数。
+### Samsung native card
 
-### 三星原生卡片
+-**App Launcher Card**: Browse apps, open folders, use the sidebar and Dock in Samsung external screen cards, and share layouts and preferences with the floating launcher.
+-**Widget Combination Card**: Provides 6 independent entrances, combines authorized Android desktop widgets within the 4×4 grid of each card, and adjusts the position and size.
 
-- **应用启动器卡片**：在三星外屏卡片中浏览应用、打开文件夹、使用侧栏和 Dock，与浮窗启动器共享布局和偏好。
-- **小组件组合卡片**：提供6个独立入口，在每张卡片的4×4网格内组合已授权的 Android 桌面小组件，调整位置和尺寸。
+### Mouse, trackpad and keyboard
+Supports configuring pointer operations or directional navigation for the mouse and trackpad; the physical keyboard can use arrow keys to select, confirm key operations, and cancel key to return. The navigation covers the assistant's own interface and the assistant's native cards that meet the conditions, and complex layout editing retains touch operations.
 
-### 鼠标、触控板与键盘
+### Appearance, Settings and Backup
 
-支持为鼠标和触控板配置指针操作或方向导航；实体键盘可用方向键选择、确认键操作和取消键返回。导航覆盖助手自有界面及满足条件的助手原生卡片，复杂布局编辑保留触摸操作。
+Provides One UI style settings, glass materials and transition effects. You can adjust the assistant status bar, shortcut bar and layout preferences. Press the application to hide the status bar drawn by the assistant or hide the shortcut buttons. Supports application of direction rules, configuration import and export, and layout backup when launching an application from this tool.
 
-### 外观、设置与备份
+Supports individually adjusting the display size of applications on the external screen: select five sizes in simple mode, customize DPI and resolution scaling in advanced mode, and restore the settings before adjustment. "Clear Portrait Screen (Experimental)" can maintain the holding direction, display the original application in a vertical area, and can still be resized after opening. Requires Shizuku and a compatible Samsung MultiStar external screen policy; the application must first join the MultiStar external screen launcher, and the actual effect depends on the firmware.
 
-提供 One UI 风格设置、玻璃材质与过渡动效，可调整助手状态栏、快捷栏和布局偏好，按应用隐藏助手绘制的状态栏或收起快捷按钮。支持从本工具启动应用时应用方向规则、配置导入导出及布局备份。
+### Manual online update
 
-支持单独调整应用在外屏中的显示大小：简单模式选择五档大小，高级模式自定义 DPI 和分辨率缩放，可恢复调整前设置。“清晰竖屏（实验）”可保持拿握方向，以竖向区域显示原应用，开启后仍能调整大小。需要 Shizuku 和兼容的三星 MultiStar 外屏策略；应用需先加入 MultiStar 外屏启动器，实际效果取决于固件。
-
-### 手动在线更新
-
-在设置中手动检查新版、下载并校验安装包，再由 Android 系统确认安装。联网仅用于用户发起的更新检查和下载，不上传通知、配置或设备信息，不增加分析追踪，不自动授权或绕过锁屏。
+Manually check for new versions in settings, download and verify the installation package, and then let the Android system confirm the installation. Networking is only used for user-initiated update checks and downloads. No notifications, configuration or device information is uploaded, no analytics tracking is added, no automatic authorization or lock screen bypassing is performed.
