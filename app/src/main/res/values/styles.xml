@@ -13,5 +13,5 @@
         <item name="android:colorControlHighlight">#24FFFFFF</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
-    <string name="accessibility_description">在所选外屏显示快捷栏，执行导航和外屏截图；根据外屏窗口所属应用自动收起按钮。窗口识别能力需无障碍的检索窗口权限，但本应用只处理窗口编号、类型与应用包名，不读取页面文字，不上传信息。可随时暂停。</string>
+    <string name="accessibility_description">Display the shortcut bar on the selected external screen to perform navigation and external screen screenshots; automatically close the button according to the application to which the external screen window belongs. Window recognition capability requires barrier-free retrieval window permissions, but this application only processes the window number, type and application package name, and does not read page text or upload information. Can be paused at any time。</string>
 </resources>

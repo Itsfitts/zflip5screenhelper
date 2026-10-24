@@ -1,10 +1,10 @@
-0.18.49 · 安全区与外屏布局改进
-• 新增外屏安全区：首页底部直达，四方向独立自动/手动，支持正负调整、辅助线、恢复与重置。
-• 统一界面与触摸边界，快捷栏留在安全区外；修复设置页旋转或重建后显示区域缩小。
-• 修复页面圆角、底部裁切及通知遮罩，控制中心横向旋转保持工具侧栏。
-• 改进白条边衬同步与可复制诊断；未开无障碍时显示首页授权入口。
+0.18.49 · Safe area and external screen layout improvements
+• New external screen safe area: direct access to the bottom of the homepage, independent automatic/manual in four directions, supporting positive and negative adjustments, auxiliary lines, recovery and reset.
+• Unify the interface and touch boundaries, leaving the shortcut bar outside the safe area; fix the display area shrinking after the settings page is rotated or rebuilt.
+• Fixed page rounded corners, bottom cropping and notification masks, and controlled the horizontal rotation of the center to maintain the tool sidebar.
+• Improved white strip and border synchronization and copyable diagnosis; display the homepage authorization entrance when accessibility is not enabled.
 
-0.18.40 · 稳定性与状态反馈
-• 窗口信息改为后台读取，减少服务启动卡顿；应用中心搜索和任务页在键盘、边距变化时保持当前页面。
-• 控制中心按外屏实际密度排版文字，为图标保留空间，避免系统字体设置挤乱布局。
-• 通知卡片右滑超过30%可请求清除；状态栏显示系统报告的 VPN，应用目录跟随启用状态更新。
+0.18.40 · Stability and status feedback
+• Window information is read in the background to reduce service startup delays; the application center search and task pages maintain the current page when the keyboard and margins change.
+• The control center typesets text according to the actual density of the external screen, leaving space for icons to avoid system font settings from crowding the layout.
+• Swipe the notification card right by more than 30% to request clearing; the status bar displays the VPN reported by the system, and the application directory is updated with the activation status.
